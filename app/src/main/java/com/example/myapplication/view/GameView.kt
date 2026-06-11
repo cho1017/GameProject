@@ -24,6 +24,12 @@ class GameView(context: Context) : View(context) {
     var onSteer: (Float) -> Unit = {}
     var onTap: () -> Unit = {}
 
+    private enum class CameraMode { TOP_DOWN, CHASE }
+
+    private var cameraMode = CameraMode.CHASE
+    private val chaseRenderer = ChaseRenderer()
+    private val toggleRect = RectF()
+
     private var state = GameUiState()
 
     private val bgPaint = Paint().apply { color = Color.rgb(38, 50, 56) }
@@ -71,6 +77,13 @@ class GameView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
     }
 
+    private val toggleBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 20, 28, 32) }
+    private val togglePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 36f
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+    }
     private val pickupPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 213, 79) }
     private val pickupTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(38, 50, 56)
@@ -91,10 +104,6 @@ class GameView(context: Context) : View(context) {
     private fun sy() = height / Level.WORLD_H
 
     override fun onDraw(canvas: Canvas) {
-        val sx = sx()
-        val sy = sy()
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-
         // 충돌 직후 화면 흔들림
         if (state.shake > 0f) {
             val mag = state.shake * 18f
@@ -104,6 +113,42 @@ class GameView(context: Context) : View(context) {
                 (Random.nextFloat() - 0.5f) * mag,
             )
         }
+
+        if (cameraMode == CameraMode.CHASE) {
+            chaseRenderer.draw(canvas, state, width, height)
+        } else {
+            drawTopDown(canvas)
+        }
+
+        if (state.shake > 0f) canvas.restore()
+
+        // 충돌 플래시
+        if (state.penaltyFlash > 0f) {
+            flashPaint.color = Color.argb((90 * state.penaltyFlash).toInt(), 244, 67, 54)
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), flashPaint)
+        }
+
+        drawHud(canvas)
+
+        when (state.phase) {
+            Phase.INTRO -> drawIntro(canvas)
+            Phase.GAME_OVER -> drawOverlay(canvas, "지각했다... 😵", "탭해서 처음부터 다시")
+            Phase.WIN -> {
+                val sub = if (state.newRecord) {
+                    "🏆 신기록! 남은 시간 %.1f초 · 탭해서 한 판 더".format(state.timeLeft)
+                } else {
+                    "남은 시간 %.1f초 · 탭해서 한 판 더".format(state.timeLeft)
+                }
+                drawOverlay(canvas, "전원 무사 도착! 🎉", sub)
+            }
+            Phase.DRIVING -> Unit
+        }
+    }
+
+    private fun drawTopDown(canvas: Canvas) {
+        val sx = sx()
+        val sy = sy()
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
         // 건물 블록 (살짝 입체감)
         for (w in state.walls) {
@@ -145,16 +190,11 @@ class GameView(context: Context) : View(context) {
         // 플레이어
         val p = state.player
         drawCar(canvas, p.x, p.y, p.heading, state.playerRadius, state.playerColor)
+    }
 
-        if (state.shake > 0f) canvas.restore()
-
-        // 충돌 플래시
-        if (state.penaltyFlash > 0f) {
-            flashPaint.color = Color.argb((90 * state.penaltyFlash).toInt(), 244, 67, 54)
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), flashPaint)
-        }
-
-        // HUD: 5초 미만이면 빨간 경고색
+    /** HUD와 시점 전환 버튼. 두 시점 공통. */
+    private fun drawHud(canvas: Canvas) {
+        // 5초 미만이면 빨간 경고색
         val timePaint = if (state.timeLeft < 5f) hudWarnPaint else hudPaint
         canvas.drawText("⏱ %.1f".format(state.timeLeft), 24f, 64f, timePaint)
         canvas.drawText(
@@ -165,19 +205,11 @@ class GameView(context: Context) : View(context) {
             canvas.drawText("🏆 %.1f".format(it), 24f, 152f, hudSmallPaint)
         }
 
-        when (state.phase) {
-            Phase.INTRO -> drawIntro(canvas)
-            Phase.GAME_OVER -> drawOverlay(canvas, "지각했다... 😵", "탭해서 처음부터 다시")
-            Phase.WIN -> {
-                val sub = if (state.newRecord) {
-                    "🏆 신기록! 남은 시간 %.1f초 · 탭해서 한 판 더".format(state.timeLeft)
-                } else {
-                    "남은 시간 %.1f초 · 탭해서 한 판 더".format(state.timeLeft)
-                }
-                drawOverlay(canvas, "전원 무사 도착! 🎉", sub)
-            }
-            Phase.DRIVING -> Unit
-        }
+        // 시점 전환 버튼 (오른쪽 위)
+        toggleRect.set(width - 150f, 24f, width - 24f, 100f)
+        canvas.drawRoundRect(toggleRect, 16f, 16f, toggleBgPaint)
+        val label = if (cameraMode == CameraMode.CHASE) "2D" else "3D"
+        canvas.drawText("🎥 $label", toggleRect.centerX(), toggleRect.centerY() + 14f, togglePaint)
     }
 
     private fun drawCar(canvas: Canvas, wx: Float, wy: Float, heading: Float, radius: Float, color: Long) {
@@ -225,6 +257,11 @@ class GameView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (toggleRect.contains(event.x, event.y)) {
+                    cameraMode = if (cameraMode == CameraMode.CHASE) CameraMode.TOP_DOWN else CameraMode.CHASE
+                    invalidate()
+                    return true
+                }
                 if (state.phase != Phase.DRIVING) {
                     onTap()
                 } else {
