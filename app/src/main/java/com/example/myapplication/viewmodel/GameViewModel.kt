@@ -1,6 +1,11 @@
 package com.example.myapplication.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.model.CarState
 import com.example.myapplication.model.GameEngine
@@ -8,7 +13,9 @@ import com.example.myapplication.model.GameUiState
 import com.example.myapplication.model.GhostState
 import com.example.myapplication.model.Level
 import com.example.myapplication.model.Phase
+import com.example.myapplication.model.Pickup
 import com.example.myapplication.model.Pose
+import com.example.myapplication.model.TrailPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,23 +27,37 @@ import kotlinx.coroutines.launch
  * 게임 루프와 라운드 진행을 소유한다.
  * View는 [ui]를 구독해 그리고, [setSteer]/[onTap]으로 입력만 전달한다.
  */
-class GameViewModel : ViewModel() {
+class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val TICK_MS = 16L
         const val DT = TICK_MS / 1000f
-        const val START_TIME = 25f      // 첫 제한 시간(초)
-        const val ROUND_BONUS = 8f      // 라운드 클리어 보너스
-        const val CRASH_PENALTY = 3f    // 리플레이 차량과 충돌 시 감점
-        const val INVULN_TIME = 1.5f    // 충돌 후 무적 시간
+        const val START_TIME = 25f       // 첫 제한 시간(초)
+        const val ROUND_BONUS = 8f       // 라운드 클리어 보너스
+        const val CRASH_INVULN = 1.0f    // 리셋 직후 무적 시간(연쇄 충돌 방지)
+        const val PICKUP_BONUS = 3f      // 시간 아이템 보너스
+        const val TRAIL_EVERY = 3        // 몇 프레임마다 잔상 점을 남길지
+        const val TRAIL_MAX = 30         // 잔상 점 최대 개수
+        const val PREFS = "game_records"
+        const val KEY_BEST = "best_time_left"
     }
 
-    private val _ui = MutableStateFlow(GameUiState(walls = Level.walls, totalVehicles = Level.vehicles.size))
+    private val prefs = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    private val _ui = MutableStateFlow(
+        GameUiState(
+            walls = Level.walls,
+            totalVehicles = Level.vehicles.size,
+            bestTime = loadBest(),
+        )
+    )
     val ui: StateFlow<GameUiState> = _ui.asStateFlow()
 
     /** 완주한 차량들의 주행 기록. 라운드마다 프레임 단위로 재생된다. */
     private val recordings = mutableListOf<List<Pose>>()
     private val currentRecording = mutableListOf<Pose>()
+    private val trail = ArrayDeque<TrailPoint>()
+    private var pickups: List<Pickup> = emptyList()
 
     private var roundIndex = 0
     private var frame = 0
@@ -44,6 +65,8 @@ class GameViewModel : ViewModel() {
     private var steer = 0f
     private var invuln = 0f
     private var penaltyFlash = 0f
+    private var shake = 0f
+    private var elapsed = 0f
 
     init {
         prepareRound()
@@ -81,18 +104,47 @@ class GameViewModel : ViewModel() {
         frame = 0
         steer = 0f
         invuln = 0f
+        shake = 0f
         currentRecording.clear()
+        trail.clear()
+        pickups = Level.pickupSpots
         _ui.value = _ui.value.copy(
             phase = Phase.INTRO,
             roundIndex = roundIndex,
             vehicleName = spec.name,
+            vehicleStory = spec.story,
             timeLeft = timeLeft,
             player = CarState(spec.startX, spec.startY, spec.startHeading, 0f),
             playerColor = spec.color,
+            playerRadius = spec.radius,
             goalX = spec.goalX,
             goalY = spec.goalY,
             ghosts = ghostsAt(0),
+            pickups = pickups,
+            trail = emptyList(),
             penaltyFlash = 0f,
+            shake = 0f,
+            newRecord = false,
+        )
+    }
+
+    /**
+     * 충돌: 이번 차량만 출발점부터 다시. 시간은 계속 흐르므로
+     * 박을수록 남은 시간이 녹는다. 리플레이 타임라인도 함께 처음으로 돌린다.
+     */
+    private fun crash() {
+        vibrate()
+        val spec = Level.vehicles[roundIndex]
+        frame = 0
+        invuln = CRASH_INVULN
+        penaltyFlash = 1f
+        shake = 1f
+        currentRecording.clear()
+        trail.clear()
+        _ui.value = _ui.value.copy(
+            player = CarState(spec.startX, spec.startY, spec.startHeading, 0f),
+            ghosts = ghostsAt(0),
+            trail = emptyList(),
         )
     }
 
@@ -100,38 +152,70 @@ class GameViewModel : ViewModel() {
         val spec = Level.vehicles[roundIndex]
         val state = _ui.value
 
-        val player = GameEngine.step(state.player, steer, spec.speed, DT, Level.walls)
+        val player = GameEngine.step(
+            state.player, steer, spec.speed, spec.turnRate, spec.radius, DT, Level.walls,
+        )
         currentRecording.add(Pose(player.x, player.y, player.heading))
         frame++
 
         timeLeft -= DT
+        elapsed += DT
         if (invuln > 0f) invuln -= DT
         if (penaltyFlash > 0f) penaltyFlash = (penaltyFlash - DT * 2f).coerceAtLeast(0f)
+        if (shake > 0f) shake = (shake - DT * 3f).coerceAtLeast(0f)
 
-        val ghosts = ghostsAt(frame)
-
-        // 과거의 나와 충돌
-        if (invuln <= 0f) {
-            val hit = ghosts.any { g ->
-                g.visible && GameEngine.carsCollide(player.x, player.y, g.pose.x, g.pose.y)
-            }
-            if (hit) {
-                timeLeft -= CRASH_PENALTY
-                invuln = INVULN_TIME
-                penaltyFlash = 1f
-            }
+        if (frame % TRAIL_EVERY == 0) {
+            trail.addLast(TrailPoint(player.x, player.y, 1f))
+            while (trail.size > TRAIL_MAX) trail.removeFirst()
+        }
+        val fadedTrail = trail.mapIndexed { i, t ->
+            t.copy(alpha = (i + 1f) / trail.size * 0.5f)
         }
 
         if (timeLeft <= 0f) {
-            _ui.value = state.copy(phase = Phase.GAME_OVER, timeLeft = 0f, player = player, ghosts = ghosts)
+            _ui.value = state.copy(phase = Phase.GAME_OVER, timeLeft = 0f, player = player)
             return
+        }
+
+        val ghosts = ghostsAt(frame)
+
+        // 과거의 나와 충돌 → 이 차량은 처음부터
+        if (invuln <= 0f) {
+            val hit = ghosts.withIndex().any { (i, g) ->
+                g.visible && GameEngine.carsCollide(
+                    player.x, player.y, spec.radius,
+                    g.pose.x, g.pose.y, Level.vehicles[i].radius,
+                )
+            }
+            if (hit) {
+                crash()
+                return
+            }
+        }
+
+        // 시간 아이템 획득
+        pickups = pickups.map { p ->
+            if (!p.collected && GameEngine.touchesPickup(player, spec.radius, p)) {
+                timeLeft += PICKUP_BONUS
+                p.copy(collected = true)
+            } else p
         }
 
         if (GameEngine.reachedGoal(player, spec.goalX, spec.goalY)) {
             recordings.add(currentRecording.toList())
             roundIndex++
             if (roundIndex >= Level.vehicles.size) {
-                _ui.value = state.copy(phase = Phase.WIN, timeLeft = timeLeft, player = player, ghosts = ghosts)
+                val best = loadBest()
+                val newRecord = best == null || timeLeft > best
+                if (newRecord) saveBest(timeLeft)
+                _ui.value = state.copy(
+                    phase = Phase.WIN,
+                    timeLeft = timeLeft,
+                    player = player,
+                    ghosts = ghosts,
+                    bestTime = if (newRecord) timeLeft else best,
+                    newRecord = newRecord,
+                )
             } else {
                 timeLeft += ROUND_BONUS
                 prepareRound()
@@ -142,8 +226,12 @@ class GameViewModel : ViewModel() {
         _ui.value = state.copy(
             player = player,
             ghosts = ghosts,
+            pickups = pickups,
+            trail = fadedTrail,
             timeLeft = timeLeft,
             penaltyFlash = penaltyFlash,
+            shake = shake,
+            elapsed = elapsed,
         )
     }
 
@@ -152,6 +240,28 @@ class GameViewModel : ViewModel() {
         recordings.mapIndexed { i, rec ->
             val visible = frame < rec.size
             val pose = if (visible) rec[frame] else rec.last()
-            GhostState(pose, Level.vehicles[i].color, visible)
+            GhostState(pose, Level.vehicles[i].color, Level.vehicles[i].radius, visible)
         }
+
+    private fun loadBest(): Float? =
+        prefs.getFloat(KEY_BEST, -1f).takeIf { it >= 0f }
+
+    private fun saveBest(value: Float) {
+        prefs.edit().putFloat(KEY_BEST, value).apply()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun vibrate() {
+        val app = getApplication<Application>()
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (app.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+        } else {
+            app.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            vibrator.vibrate(120)
+        }
+    }
 }
