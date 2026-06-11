@@ -10,7 +10,6 @@ object Level {
 
     /** 건물 블록. 사이사이가 도로가 된다. */
     val walls: List<Wall> = listOf(
-        // 바깥 테두리는 GameEngine이 월드 경계로 처리하므로 내부 블록만 둔다.
         Wall(150f, 150f, 420f, 420f),
         Wall(580f, 150f, 850f, 420f),
         Wall(150f, 580f, 420f, 1020f),
@@ -21,13 +20,63 @@ object Level {
         Wall(470f, 700f, 530f, 900f),
     )
 
+    /** 시간 아이템 스폰 위치. 라운드마다 다시 생긴다. 일부러 동선에서 살짝 벗어난 곳에 둔다. */
+    val pickupSpots: List<Pickup> = listOf(
+        Pickup(500f, 500f),
+        Pickup(500f, 1100f),
+        Pickup(75f, 500f),
+        Pickup(925f, 1100f),
+    )
+
     val vehicles: List<VehicleSpec> = listOf(
-        VehicleSpec("출근하는 회사원", 75f, 1530f, -90f.toRad(), 925f, 75f, 240f, 0xFFE53935),
-        VehicleSpec("지각한 대학생", 925f, 1530f, -90f.toRad(), 75f, 75f, 270f, 0xFF1E88E5),
-        VehicleSpec("신문 배달부", 75f, 75f, 0f.toRad(), 925f, 1530f, 255f, 0xFFFDD835),
-        VehicleSpec("우유 트럭", 925f, 75f, 180f.toRad(), 75f, 1530f, 210f, 0xFFF5F5F5),
-        VehicleSpec("드라이브 나온 할머니", 75f, 800f, 0f.toRad(), 925f, 800f, 195f, 0xFF8E24AA),
-        VehicleSpec("퇴근하는 택시", 925f, 800f, 180f.toRad(), 75f, 800f, 285f, 0xFFFB8C00),
+        VehicleSpec(
+            name = "출근하는 회사원",
+            story = "9시 회의인데 벌써 8시 52분. 부장님이 기다린다.",
+            startX = 75f, startY = 1530f, startHeading = (-90f).toRad(),
+            goalX = 925f, goalY = 75f,
+            speed = 240f, turnRate = 3.0f, radius = 24f,
+            color = 0xFFE53935,
+        ),
+        VehicleSpec(
+            name = "지각한 대학생",
+            story = "1교시 출석 체크까지 5분. 교수님은 지각을 싫어한다.",
+            startX = 925f, startY = 1530f, startHeading = (-90f).toRad(),
+            goalX = 75f, goalY = 75f,
+            speed = 285f, turnRate = 3.6f, radius = 21f,
+            color = 0xFF1E88E5,
+        ),
+        VehicleSpec(
+            name = "신문 배달부",
+            story = "마지막 한 부만 돌리면 끝. 오늘도 무사고이길.",
+            startX = 75f, startY = 75f, startHeading = 0f.toRad(),
+            goalX = 925f, goalY = 1530f,
+            speed = 255f, turnRate = 3.2f, radius = 22f,
+            color = 0xFFFDD835,
+        ),
+        VehicleSpec(
+            name = "우유 트럭",
+            story = "적재함 가득한 우유병. 급커브는 곧 대참사다.",
+            startX = 925f, startY = 75f, startHeading = 180f.toRad(),
+            goalX = 75f, goalY = 1530f,
+            speed = 200f, turnRate = 2.0f, radius = 32f,
+            color = 0xFFF5F5F5,
+        ),
+        VehicleSpec(
+            name = "드라이브 나온 할머니",
+            story = "급할 것 하나 없다. 하지만 도로는 그렇지 않지.",
+            startX = 75f, startY = 800f, startHeading = 0f.toRad(),
+            goalX = 925f, goalY = 800f,
+            speed = 185f, turnRate = 2.4f, radius = 24f,
+            color = 0xFF8E24AA,
+        ),
+        VehicleSpec(
+            name = "퇴근하는 택시",
+            story = "사납금은 채웠다. 이제 집까지 풀악셀.",
+            startX = 925f, startY = 800f, startHeading = 180f.toRad(),
+            goalX = 75f, goalY = 800f,
+            speed = 310f, turnRate = 4.0f, radius = 22f,
+            color = 0xFFFB8C00,
+        ),
     )
 
     private fun Float.toRad(): Float = (this * Math.PI / 180.0).toFloat()

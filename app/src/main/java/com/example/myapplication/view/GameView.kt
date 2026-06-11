@@ -12,6 +12,8 @@ import com.example.myapplication.model.GameEngine
 import com.example.myapplication.model.GameUiState
 import com.example.myapplication.model.Level
 import com.example.myapplication.model.Phase
+import kotlin.math.sin
+import kotlin.random.Random
 
 /**
  * 순수 렌더러. [render]로 받은 상태를 그리기만 하고,
@@ -34,9 +36,15 @@ class GameView(context: Context) : View(context) {
     }
     private val goalFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(50, 102, 187, 106) }
     private val carPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val trailPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val windowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(170, 20, 30, 40) }
     private val hudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
+        textSize = 48f
+        isFakeBoldText = true
+    }
+    private val hudWarnPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(239, 83, 80)
         textSize = 48f
         isFakeBoldText = true
     }
@@ -57,6 +65,19 @@ class GameView(context: Context) : View(context) {
         textSize = 38f
         textAlign = Paint.Align.CENTER
     }
+    private val storyText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 213, 79)
+        textSize = 40f
+        textAlign = Paint.Align.CENTER
+    }
+
+    private val pickupPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 213, 79) }
+    private val pickupTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(38, 50, 56)
+        textSize = 34f
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+    }
 
     private val rect = RectF()
 
@@ -74,6 +95,16 @@ class GameView(context: Context) : View(context) {
         val sy = sy()
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
+        // 충돌 직후 화면 흔들림
+        if (state.shake > 0f) {
+            val mag = state.shake * 18f
+            canvas.save()
+            canvas.translate(
+                (Random.nextFloat() - 0.5f) * mag,
+                (Random.nextFloat() - 0.5f) * mag,
+            )
+        }
+
         // 건물 블록 (살짝 입체감)
         for (w in state.walls) {
             rect.set(w.left * sx, w.top * sy, w.right * sx, w.bottom * sy)
@@ -83,20 +114,39 @@ class GameView(context: Context) : View(context) {
             canvas.drawRoundRect(rect, 10f, 10f, wallTopPaint)
         }
 
-        // 목적지
-        val gr = GameEngine.GOAL_RADIUS * sx
+        // 목적지: 시간에 따라 맥박처럼 커졌다 작아진다
+        val pulse = 1f + 0.08f * sin(state.elapsed * 4f)
+        val gr = GameEngine.GOAL_RADIUS * sx * pulse
         canvas.drawCircle(state.goalX * sx, state.goalY * sy, gr, goalFillPaint)
         canvas.drawCircle(state.goalX * sx, state.goalY * sy, gr, goalPaint)
+
+        // 시간 아이템: 동전처럼 살짝 둥실거린다
+        for (p in state.pickups) {
+            if (p.collected) continue
+            val bob = sin(state.elapsed * 5f) * 4f
+            val px = p.x * sx
+            val py = p.y * sy + bob
+            canvas.drawCircle(px, py, GameEngine.PICKUP_RADIUS * sx, pickupPaint)
+            canvas.drawText("+3", px, py + 12f, pickupTextPaint)
+        }
+
+        // 플레이어 타이어 잔상
+        for (t in state.trail) {
+            trailPaint.color = colorWithAlpha(state.playerColor, (t.alpha * 255).toInt())
+            canvas.drawCircle(t.x * sx, t.y * sy, state.playerRadius * 0.45f * sx, trailPaint)
+        }
 
         // 리플레이 차량들
         for (g in state.ghosts) {
             if (!g.visible) continue
-            drawCar(canvas, g.pose.x, g.pose.y, g.pose.heading, g.color, alpha = 255)
+            drawCar(canvas, g.pose.x, g.pose.y, g.pose.heading, g.radius, g.color)
         }
 
         // 플레이어
         val p = state.player
-        drawCar(canvas, p.x, p.y, p.heading, state.playerColor, alpha = 255)
+        drawCar(canvas, p.x, p.y, p.heading, state.playerRadius, state.playerColor)
+
+        if (state.shake > 0f) canvas.restore()
 
         // 충돌 플래시
         if (state.penaltyFlash > 0f) {
@@ -104,39 +154,41 @@ class GameView(context: Context) : View(context) {
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), flashPaint)
         }
 
-        // HUD
-        canvas.drawText("⏱ %.1f".format(state.timeLeft), 24f, 64f, hudPaint)
+        // HUD: 5초 미만이면 빨간 경고색
+        val timePaint = if (state.timeLeft < 5f) hudWarnPaint else hudPaint
+        canvas.drawText("⏱ %.1f".format(state.timeLeft), 24f, 64f, timePaint)
         canvas.drawText(
             "${state.roundIndex + 1}/${state.totalVehicles}  ${state.vehicleName}",
             24f, 110f, hudSmallPaint,
         )
+        state.bestTime?.let {
+            canvas.drawText("🏆 %.1f".format(it), 24f, 152f, hudSmallPaint)
+        }
 
         when (state.phase) {
-            Phase.INTRO -> drawOverlay(
-                canvas,
-                state.vehicleName,
-                "화면 왼쪽/오른쪽을 눌러 조향 · 탭해서 출발!",
-            )
+            Phase.INTRO -> drawIntro(canvas)
             Phase.GAME_OVER -> drawOverlay(canvas, "지각했다... 😵", "탭해서 처음부터 다시")
-            Phase.WIN -> drawOverlay(canvas, "전원 무사 도착! 🎉", "탭해서 한 판 더")
+            Phase.WIN -> {
+                val sub = if (state.newRecord) {
+                    "🏆 신기록! 남은 시간 %.1f초 · 탭해서 한 판 더".format(state.timeLeft)
+                } else {
+                    "남은 시간 %.1f초 · 탭해서 한 판 더".format(state.timeLeft)
+                }
+                drawOverlay(canvas, "전원 무사 도착! 🎉", sub)
+            }
             Phase.DRIVING -> Unit
         }
     }
 
-    private fun drawCar(canvas: Canvas, wx: Float, wy: Float, heading: Float, color: Long, alpha: Int) {
+    private fun drawCar(canvas: Canvas, wx: Float, wy: Float, heading: Float, radius: Float, color: Long) {
         val sx = sx()
         val sy = sy()
         val cx = wx * sx
         val cy = wy * sy
-        val halfL = GameEngine.CAR_RADIUS * 1.25f * sx
-        val halfW = GameEngine.CAR_RADIUS * 0.75f * sx
+        val halfL = radius * 1.25f * sx
+        val halfW = radius * 0.75f * sx
 
-        carPaint.color = Color.argb(
-            alpha,
-            (color shr 16 and 0xFF).toInt(),
-            (color shr 8 and 0xFF).toInt(),
-            (color and 0xFF).toInt(),
-        )
+        carPaint.color = colorWithAlpha(color, 255)
         canvas.save()
         canvas.translate(cx, cy)
         canvas.rotate(Math.toDegrees(heading.toDouble()).toFloat())
@@ -146,6 +198,21 @@ class GameView(context: Context) : View(context) {
         rect.set(halfL * 0.15f, -halfW * 0.7f, halfL * 0.65f, halfW * 0.7f)
         canvas.drawRoundRect(rect, 6f, 6f, windowPaint)
         canvas.restore()
+    }
+
+    private fun colorWithAlpha(color: Long, alpha: Int): Int = Color.argb(
+        alpha,
+        (color shr 16 and 0xFF).toInt(),
+        (color shr 8 and 0xFF).toInt(),
+        (color and 0xFF).toInt(),
+    )
+
+    private fun drawIntro(canvas: Canvas) {
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
+        val cy = height / 2f
+        canvas.drawText(state.vehicleName, width / 2f, cy - 80f, centerText)
+        canvas.drawText("“${state.vehicleStory}”", width / 2f, cy, storyText)
+        canvas.drawText("화면 왼쪽/오른쪽을 눌러 조향 · 탭해서 출발!", width / 2f, cy + 80f, centerSub)
     }
 
     private fun drawOverlay(canvas: Canvas, title: String, sub: String) {
