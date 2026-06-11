@@ -8,16 +8,26 @@ object Level {
     const val WORLD_W = 1000f
     const val WORLD_H = 1600f
 
+    /** 외곽 벽 두께. */
+    const val BORDER = 25f
+
     /** 건물 블록. 사이사이가 도로가 된다. */
     val walls: List<Wall> = listOf(
+        // 외곽 벽
+        Wall(0f, 0f, WORLD_W, BORDER),
+        Wall(0f, WORLD_H - BORDER, WORLD_W, WORLD_H),
+        Wall(0f, 0f, BORDER, WORLD_H),
+        Wall(WORLD_W - BORDER, 0f, WORLD_W, WORLD_H),
+        // 건물 블록
         Wall(150f, 150f, 420f, 420f),
         Wall(580f, 150f, 850f, 420f),
-        Wall(150f, 580f, 420f, 1020f),
-        Wall(580f, 580f, 850f, 1020f),
+        // 가운데 줄은 화단 옆 길이 넓어지도록 블록을 좁힌다
+        Wall(150f, 580f, 400f, 1020f),
+        Wall(600f, 580f, 850f, 1020f),
         Wall(150f, 1180f, 420f, 1450f),
         Wall(580f, 1180f, 850f, 1450f),
-        // 중앙 분리 화단
-        Wall(470f, 700f, 530f, 900f),
+        // 중앙 분리 화단 (양옆 통로 폭 80 - 우유 트럭도 지나간다)
+        Wall(480f, 700f, 520f, 900f),
     )
 
     /** 시간 아이템 스폰 위치. 라운드마다 다시 생긴다. 일부러 동선에서 살짝 벗어난 곳에 둔다. */
