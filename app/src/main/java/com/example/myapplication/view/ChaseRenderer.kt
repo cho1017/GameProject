@@ -28,6 +28,8 @@ class ChaseRenderer {
         const val CAM_BACK = 200f   // 플레이어 뒤 거리 (월드 단위)
         const val CAM_H = 130f      // 카메라 높이
         const val BUILD_H = 90f     // 건물 높이
+        const val CAR_H = 32f       // 차량 높이 (납작하면 멀리서 안 보인다)
+        const val BORDER_H = 45f    // 외곽 벽 높이 (건물보다 낮게)
         const val NEAR = 10f        // 근접 클리핑 평면
         const val FAR_FADE = 2600f  // 이 거리에서 완전히 어두워짐
         const val HORIZON_RATIO = 0.38f
@@ -227,25 +229,77 @@ class ChaseRenderer {
         jobs: MutableList<Job>, canvas: Canvas,
         x: Float, y: Float, heading: Float, radius: Float, color: Long,
     ) {
-        val body = groundPolyPath(carCorners(x, y, heading, radius * 1.25f, radius * 0.75f)) ?: return
-        val bodySnapshot = Path(body.first)
-        val depth = body.second
-        // 앞유리 (진행 방향 앞쪽 절반)
+        val rgb = colorWithAlpha(color, 255)
+        // 차체: 높이 있는 박스. 지붕에 앞유리를 얹는다.
         val c = cos(heading)
         val s = sin(heading)
-        val glass = groundPolyPath(
-            carCorners(x + c * radius * 0.5f, y + s * radius * 0.5f, heading, radius * 0.35f, radius * 0.55f)
+        val glassCorners = carCorners(
+            x + c * radius * 0.4f, y + s * radius * 0.4f, heading, radius * 0.4f, radius * 0.6f,
         )
-        val glassSnapshot = glass?.let { Path(it.first) }
-        val f = depth
-        jobs.add(Job(depth) {
-            polyPaint.color = shade(colorWithAlpha(color, 255), f)
-            canvas.drawPath(bodySnapshot, polyPaint)
-            if (glassSnapshot != null) {
-                polyPaint.color = Color.argb(170, 20, 30, 40)
-                canvas.drawPath(glassSnapshot, polyPaint)
+        addPrism(
+            jobs, canvas,
+            corners = carCorners(x, y, heading, radius * 1.25f, radius * 0.75f),
+            heightZ = CAR_H,
+            color = rgb,
+            topBrightness = 1.1f,
+            topExtra = { topDepth ->
+                val glass = polyPathAt(glassCorners, CAR_H + 0.5f)
+                if (glass != null) {
+                    polyPaint.color = Color.argb(190, 20, 30, 40)
+                    canvas.drawPath(glass, polyPaint)
+                }
+            },
+        )
+    }
+
+    /** 월드 꼭짓점들을 높이 z 평면에 투영한 Path. 일부가 카메라 뒤면 null (간략화). */
+    private fun polyPathAt(pts: List<Pair<Float, Float>>, z: Float): Path? {
+        val cam = pts.map { toCam(it.first, it.second) }
+        if (cam.any { it.second < NEAR }) return null
+        val p = Path()
+        cam.forEachIndexed { i, (r, f) ->
+            val x = projX(r, f)
+            val y = projY(f, z)
+            if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
+        }
+        p.close()
+        return p
+    }
+
+    /**
+     * 바닥 다각형을 heightZ만큼 돌출시킨 기둥. 건물·차량 공용.
+     * 측면은 어둡게, 윗면은 [topBrightness] 배율로 그린다.
+     */
+    private fun addPrism(
+        jobs: MutableList<Job>, canvas: Canvas,
+        corners: List<Pair<Float, Float>>, heightZ: Float, color: Int,
+        topBrightness: Float = 1.0f,
+        topExtra: ((Float) -> Unit)? = null,
+    ) {
+        val cam = corners.map { toCam(it.first, it.second) }
+        val faceShade = floatArrayOf(0.85f, 0.62f, 0.5f, 0.72f)
+        for (i in corners.indices) {
+            addWallFace(jobs, canvas, cam[i], cam[(i + 1) % corners.size], heightZ, color, faceShade[i % 4])
+        }
+        // 윗면: 모든 꼭짓점이 앞에 있을 때만 (클리핑 단순화)
+        if (cam.all { it.second >= NEAR }) {
+            val top = Path()
+            var depth = 0f
+            cam.forEachIndexed { i, (r, f) ->
+                depth += f
+                val x = projX(r, f)
+                val y = projY(f, heightZ)
+                if (i == 0) top.moveTo(x, y) else top.lineTo(x, y)
             }
-        })
+            top.close()
+            val f = depth / cam.size
+            // 윗면은 측면보다 살짝 가까운 깊이로 취급해 위에 그려지게 한다
+            jobs.add(Job(f - 1f) {
+                polyPaint.color = shade(color, f, topBrightness.coerceAtMost(1f))
+                canvas.drawPath(top, polyPaint)
+                topExtra?.invoke(f)
+            })
+        }
     }
 
     // ── 아이템 ────────────────────────────────────────────────────────
@@ -272,44 +326,24 @@ class ChaseRenderer {
     // ── 건물: 4개 측면 + 지붕 ─────────────────────────────────────────
 
     private fun addBuilding(jobs: MutableList<Job>, canvas: Canvas, w: com.example.myapplication.model.Wall) {
-        val corners = listOf(
-            Pair(w.left, w.top), Pair(w.right, w.top),
-            Pair(w.right, w.bottom), Pair(w.left, w.bottom),
+        // 월드 가장자리에 붙은 벽은 낮은 외곽 벽으로 그린다
+        val isBorder = w.left <= 0f || w.top <= 0f || w.right >= Level.WORLD_W || w.bottom >= Level.WORLD_H
+        addPrism(
+            jobs, canvas,
+            corners = listOf(
+                Pair(w.left, w.top), Pair(w.right, w.top),
+                Pair(w.right, w.bottom), Pair(w.left, w.bottom),
+            ),
+            heightZ = if (isBorder) BORDER_H else BUILD_H,
+            color = if (isBorder) Color.rgb(84, 110, 122) else Color.rgb(96, 125, 139),
         )
-        val cam = corners.map { toCam(it.first, it.second) }
-
-        // 측면 4개. 면마다 명암을 달리해 입체감을 준다.
-        val faceShade = floatArrayOf(1.0f, 0.78f, 0.62f, 0.88f)
-        for (i in 0 until 4) {
-            val a = cam[i]
-            val b = cam[(i + 1) % 4]
-            addWallFace(jobs, canvas, a, b, faceShade[i])
-        }
-
-        // 지붕: 모든 꼭짓점이 앞에 있을 때만 (클리핑 단순화)
-        if (cam.all { it.second >= NEAR }) {
-            val roof = Path()
-            var depth = 0f
-            cam.forEachIndexed { i, (r, f) ->
-                depth += f
-                val x = projX(r, f)
-                val y = projY(f, BUILD_H)
-                if (i == 0) roof.moveTo(x, y) else roof.lineTo(x, y)
-            }
-            roof.close()
-            val f = depth / 4f
-            // 지붕은 측면보다 살짝 가까운 깊이로 취급해 위에 그려지게 한다
-            jobs.add(Job(f - 1f) {
-                polyPaint.color = shade(Color.rgb(96, 125, 139), f)
-                canvas.drawPath(roof, polyPaint)
-            })
-        }
     }
 
     /** 두 바닥 꼭짓점(카메라 좌표) 사이의 수직 벽면. */
     private fun addWallFace(
         jobs: MutableList<Job>, canvas: Canvas,
-        a: Pair<Float, Float>, b: Pair<Float, Float>, brightness: Float,
+        a: Pair<Float, Float>, b: Pair<Float, Float>,
+        heightZ: Float, color: Int, brightness: Float,
     ) {
         var (r1, f1) = a
         var (r2, f2) = b
@@ -324,13 +358,13 @@ class ChaseRenderer {
         val face = Path().apply {
             moveTo(projX(r1, f1), projY(f1))
             lineTo(projX(r2, f2), projY(f2))
-            lineTo(projX(r2, f2), projY(f2, BUILD_H))
-            lineTo(projX(r1, f1), projY(f1, BUILD_H))
+            lineTo(projX(r2, f2), projY(f2, heightZ))
+            lineTo(projX(r1, f1), projY(f1, heightZ))
             close()
         }
         val depth = (f1 + f2) / 2f
         jobs.add(Job(depth) {
-            polyPaint.color = shade(Color.rgb(69, 90, 100), depth, brightness)
+            polyPaint.color = shade(color, depth, brightness)
             canvas.drawPath(face, polyPaint)
         })
     }
