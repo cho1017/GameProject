@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh auth *)",
+      "PowerShell(.\\\\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --console=plain 2>&1)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; cmd /c \".\\\\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --console=plain\" | Select-Object -Last 40)"
+    ]
+  }
+}
