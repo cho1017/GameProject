@@ -30,6 +30,7 @@ class ChaseRenderer {
         const val BUILD_H = 90f     // 건물 높이
         const val CAR_H = 32f       // 차량 높이 (납작하면 멀리서 안 보인다)
         const val BORDER_H = 45f    // 외곽 벽 높이 (건물보다 낮게)
+        const val MIRROR_H = 70f    // 반사경 기둥 높이
         const val NEAR = 10f        // 근접 클리핑 평면
         const val FAR_FADE = 2600f  // 이 거리에서 완전히 어두워짐
         const val HORIZON_RATIO = 0.38f
@@ -110,6 +111,9 @@ class ChaseRenderer {
 
         // 건물
         for (wall in state.walls) addBuilding(jobs, canvas, wall)
+
+        // 코너 반사경
+        for (m in state.mirrors) addMirror(jobs, canvas, m)
 
         // 리플레이 차량
         for (g in state.ghosts) {
@@ -366,6 +370,38 @@ class ChaseRenderer {
         jobs.add(Job(depth) {
             polyPaint.color = shade(color, depth, brightness)
             canvas.drawPath(face, polyPaint)
+        })
+    }
+
+    // ── 코너 반사경: 기둥 + 거울 원판 ─────────────────────────────────
+
+    private fun addMirror(jobs: MutableList<Job>, canvas: Canvas, m: com.example.myapplication.model.MirrorState) {
+        val poleHalf = 5f
+        // 기둥
+        addPrism(
+            jobs, canvas,
+            corners = listOf(
+                Pair(m.x - poleHalf, m.y - poleHalf), Pair(m.x + poleHalf, m.y - poleHalf),
+                Pair(m.x + poleHalf, m.y + poleHalf), Pair(m.x - poleHalf, m.y + poleHalf),
+            ),
+            heightZ = MIRROR_H,
+            color = Color.rgb(120, 134, 142),
+        )
+        // 거울 원판 (빌보드)
+        val (r, f) = toCam(m.x, m.y)
+        if (f < NEAR) return
+        val cx = projX(r, f)
+        val cy = projY(f, MIRROR_H + 14f)
+        val radius = (focal / f * 15f).coerceIn(3f, 70f)
+        jobs.add(Job(f - 2f) {
+            if (m.alert) {
+                polyPaint.color = Color.argb(100, 255, 152, 0)
+                canvas.drawCircle(cx, cy, radius * 1.9f, polyPaint)
+            }
+            polyPaint.color = if (m.alert) Color.rgb(255, 152, 0) else shade(Color.rgb(207, 216, 220), f)
+            canvas.drawCircle(cx, cy, radius, polyPaint)
+            strokePaint.color = Color.rgb(55, 71, 79)
+            canvas.drawCircle(cx, cy, radius, strokePaint)
         })
     }
 

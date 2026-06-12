@@ -12,6 +12,7 @@ import com.example.myapplication.model.GameEngine
 import com.example.myapplication.model.GameUiState
 import com.example.myapplication.model.GhostState
 import com.example.myapplication.model.Level
+import com.example.myapplication.model.MirrorState
 import com.example.myapplication.model.Phase
 import com.example.myapplication.model.Pickup
 import com.example.myapplication.model.Pose
@@ -36,6 +37,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val ROUND_BONUS = 8f       // 라운드 클리어 보너스
         const val CRASH_INVULN = 1.0f    // 리셋 직후 무적 시간(연쇄 충돌 방지)
         const val PICKUP_BONUS = 3f      // 시간 아이템 보너스
+        const val MIRROR_RANGE = 260f    // 반사경이 차량을 감지하는 거리
         const val TRAIL_EVERY = 3        // 몇 프레임마다 잔상 점을 남길지
         const val TRAIL_MAX = 30         // 잔상 점 최대 개수
         const val PREFS = "game_records"
@@ -120,6 +122,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             goalX = spec.goalX,
             goalY = spec.goalY,
             ghosts = ghostsAt(0),
+            mirrors = mirrorsAt(ghostsAt(0)),
             pickups = pickups,
             trail = emptyList(),
             penaltyFlash = 0f,
@@ -226,6 +229,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _ui.value = state.copy(
             player = player,
             ghosts = ghosts,
+            mirrors = mirrorsAt(ghosts),
             pickups = pickups,
             trail = fadedTrail,
             timeLeft = timeLeft,
@@ -241,6 +245,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val visible = frame < rec.size
             val pose = if (visible) rec[frame] else rec.last()
             GhostState(pose, Level.vehicles[i].color, Level.vehicles[i].radius, visible)
+        }
+
+    /** 반사경 경고 상태: 근처에 보이는 리플레이 차량이 있으면 켜진다. */
+    private fun mirrorsAt(ghosts: List<GhostState>): List<MirrorState> =
+        Level.mirrors.map { (mx, my) ->
+            val alert = ghosts.any { g ->
+                g.visible && kotlin.math.hypot(g.pose.x - mx, g.pose.y - my) < MIRROR_RANGE
+            }
+            MirrorState(mx, my, alert)
         }
 
     private fun loadBest(): Float? =

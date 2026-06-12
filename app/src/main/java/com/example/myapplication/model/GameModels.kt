@@ -41,6 +41,9 @@ data class GhostState(
     val visible: Boolean,
 )
 
+/** 코너 반사경. 근처에 리플레이 차량이 있으면 [alert]가 켜진다. */
+data class MirrorState(val x: Float, val y: Float, val alert: Boolean)
+
 /** 길에 떨어진 시간 아이템. 주우면 제한 시간이 늘어난다. */
 data class Pickup(val x: Float, val y: Float, val collected: Boolean = false)
 
@@ -62,6 +65,7 @@ data class GameUiState(
     val playerRadius: Float = 24f,
     val ghosts: List<GhostState> = emptyList(),
     val pickups: List<Pickup> = emptyList(),
+    val mirrors: List<MirrorState> = emptyList(),
     val trail: List<TrailPoint> = emptyList(),
     val goalX: Float = 0f,
     val goalY: Float = 0f,

@@ -84,6 +84,13 @@ class GameView(context: Context) : View(context) {
         isFakeBoldText = true
         textAlign = Paint.Align.CENTER
     }
+    private val mirrorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val mirrorGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val mirrorRimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = Color.rgb(55, 71, 79)
+    }
     private val pickupPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 213, 79) }
     private val pickupTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(38, 50, 56)
@@ -164,6 +171,19 @@ class GameView(context: Context) : View(context) {
         val gr = GameEngine.GOAL_RADIUS * sx * pulse
         canvas.drawCircle(state.goalX * sx, state.goalY * sy, gr, goalFillPaint)
         canvas.drawCircle(state.goalX * sx, state.goalY * sy, gr, goalPaint)
+
+        // 코너 반사경: 근처에 리플레이 차량이 있으면 주황색으로 빛난다
+        for (m in state.mirrors) {
+            val mx = m.x * sx
+            val my = m.y * sy
+            if (m.alert) {
+                mirrorGlowPaint.color = Color.argb(90, 255, 152, 0)
+                canvas.drawCircle(mx, my, 26f, mirrorGlowPaint)
+            }
+            mirrorPaint.color = if (m.alert) Color.rgb(255, 152, 0) else Color.rgb(176, 190, 197)
+            canvas.drawCircle(mx, my, 11f, mirrorPaint)
+            canvas.drawCircle(mx, my, 11f, mirrorRimPaint)
+        }
 
         // 시간 아이템: 동전처럼 살짝 둥실거린다
         for (p in state.pickups) {
