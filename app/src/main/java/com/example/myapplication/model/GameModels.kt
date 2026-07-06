@@ -80,4 +80,12 @@ data class GameUiState(
     val bestTime: Float? = null,
     /** 이번 판에 신기록을 세웠는가 (WIN 화면용). */
     val newRecord: Boolean = false,
+    /** 승리 시 별 등급(1~3). 진행 중엔 0. */
+    val stars: Int = 0,
+    /** 역대 최고 별 등급. */
+    val bestStars: Int = 0,
+    /** 현재 니어미스 콤보 수. 충돌하면 0으로 초기화. */
+    val nearMissCombo: Int = 0,
+    /** 니어미스 직후 1→0으로 줄어드는 연출 강도(토스트 표시용). */
+    val nearMissFlash: Float = 0f,
 )

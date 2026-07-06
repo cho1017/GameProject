@@ -78,9 +78,29 @@ object GameEngine {
         return CarState(x, y, heading, newSpeed)
     }
 
+    /** 니어미스 판정 거리 = (두 반지름 합) * 이 배수. 충돌은 아니지만 스칠 정도. */
+    const val NEAR_MISS_FACTOR = 1.9f
+
     /** 두 차량(원 근사)이 겹치는가. */
     fun carsCollide(ax: Float, ay: Float, aRadius: Float, bx: Float, by: Float, bRadius: Float): Boolean =
         hypot(ax - bx, ay - by) < aRadius + bRadius
+
+    /**
+     * 니어미스: 충돌은 아니지만 아슬아슬하게 스친 상태.
+     * 충돌 반경 밖 ~ 충돌 반경 * [NEAR_MISS_FACTOR] 안.
+     */
+    fun isNearMiss(ax: Float, ay: Float, aRadius: Float, bx: Float, by: Float, bRadius: Float): Boolean {
+        val d = hypot(ax - bx, ay - by)
+        val touch = aRadius + bRadius
+        return d >= touch && d < touch * NEAR_MISS_FACTOR
+    }
+
+    /** 최종 남은 시간으로 별 등급(1~3)을 매긴다. */
+    fun starsFor(timeLeft: Float): Int = when {
+        timeLeft >= 20f -> 3
+        timeLeft >= 10f -> 2
+        else -> 1
+    }
 
     /** 아이템 획득 판정. */
     fun touchesPickup(car: CarState, carRadius: Float, pickup: Pickup): Boolean =
