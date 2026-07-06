@@ -33,6 +33,16 @@ class GameView(context: Context) : View(context) {
     private var state = GameUiState()
 
     private val bgPaint = Paint().apply { color = Color.rgb(38, 50, 56) }
+    private val laneLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(110, 255, 235, 59)
+        strokeWidth = 5f
+        style = Paint.Style.STROKE
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(28f, 22f), 0f)
+    }
+    private val borderWallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(84, 110, 122) }
+    private val windowDetailPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val gardenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(67, 132, 78) }
+    private val bushPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val wallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(69, 90, 100) }
     private val wallTopPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(96, 125, 139) }
     private val goalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -177,13 +187,28 @@ class GameView(context: Context) : View(context) {
         val sy = sy()
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
+        // 도로 중앙선 (점선)
+        for (l in Level.roadLines) {
+            canvas.drawLine(l.x1 * sx, l.y1 * sy, l.x2 * sx, l.y2 * sy, laneLinePaint)
+        }
+
         // 건물 블록 (살짝 입체감)
         for (w in state.walls) {
+            if (w == Level.garden) {
+                drawGardenTopDown(canvas, w, sx, sy)
+                continue
+            }
+            val isBorder = w.left <= 0f || w.top <= 0f || w.right >= Level.WORLD_W || w.bottom >= Level.WORLD_H
             rect.set(w.left * sx, w.top * sy, w.right * sx, w.bottom * sy)
+            if (isBorder) {
+                canvas.drawRect(rect, borderWallPaint)
+                continue
+            }
             canvas.drawRoundRect(rect, 12f, 12f, wallPaint)
             rect.inset(8f, 8f)
             rect.offset(0f, -4f)
             canvas.drawRoundRect(rect, 10f, 10f, wallTopPaint)
+            drawWindows(canvas, w, sx, sy)
         }
 
         // 목적지: 시간에 따라 맥박처럼 커졌다 작아진다
@@ -276,6 +301,44 @@ class GameView(context: Context) : View(context) {
         rect.set(halfL * 0.15f, -halfW * 0.7f, halfL * 0.65f, halfW * 0.7f)
         canvas.drawRoundRect(rect, 6f, 6f, windowPaint)
         canvas.restore()
+    }
+
+    /** 건물 옥상의 창문(채광창) 격자. 일부는 불이 켜져 있다. */
+    private fun drawWindows(canvas: Canvas, w: com.example.myapplication.model.Wall, sx: Float, sy: Float) {
+        val step = 55f
+        val size = 20f
+        var wy = w.top + 40f
+        var row = 0
+        while (wy + size < w.bottom - 30f) {
+            var wx = w.left + 40f
+            var col = 0
+            while (wx + size < w.right - 30f) {
+                // 결정적 패턴으로 일부 창문만 점등 (매 프레임 동일해야 깜빡이지 않는다)
+                val lit = (row * 7 + col * 13 + (w.left / 10).toInt()) % 5 == 0
+                windowDetailPaint.color = if (lit) Color.argb(200, 255, 224, 130) else Color.argb(90, 30, 42, 48)
+                rect.set(wx * sx, wy * sy, (wx + size) * sx, (wy + size) * sy)
+                canvas.drawRoundRect(rect, 3f, 3f, windowDetailPaint)
+                wx += step
+                col++
+            }
+            wy += step
+            row++
+        }
+    }
+
+    /** 중앙 화단: 녹지 + 수풀. */
+    private fun drawGardenTopDown(canvas: Canvas, w: com.example.myapplication.model.Wall, sx: Float, sy: Float) {
+        rect.set(w.left * sx, w.top * sy, w.right * sx, w.bottom * sy)
+        canvas.drawRoundRect(rect, 14f, 14f, gardenPaint)
+        val cx = (w.left + w.right) / 2f
+        var by = w.top + 30f
+        var i = 0
+        while (by < w.bottom - 20f) {
+            bushPaint.color = if (i % 2 == 0) Color.rgb(56, 118, 68) else Color.rgb(46, 100, 58)
+            canvas.drawCircle((cx + if (i % 2 == 0) -6f else 6f) * sx, by * sy, 14f * sx, bushPaint)
+            by += 42f
+            i++
+        }
     }
 
     private fun colorWithAlpha(color: Long, alpha: Int): Int = Color.argb(

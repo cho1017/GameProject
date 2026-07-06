@@ -6,6 +6,9 @@ data class Pose(val x: Float, val y: Float, val heading: Float)
 /** 축 정렬 사각형 장애물(건물 블록). */
 data class Wall(val left: Float, val top: Float, val right: Float, val bottom: Float)
 
+/** 장식용 선분 (도로 중앙선 등). 충돌 없음. */
+data class Segment(val x1: Float, val y1: Float, val x2: Float, val y2: Float)
+
 /** 라운드마다 등장하는 차량의 정의. 개성은 speed/turnRate/radius 조합으로 만든다. */
 data class VehicleSpec(
     val name: String,
