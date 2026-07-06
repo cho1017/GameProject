@@ -84,6 +84,21 @@ class GameView(context: Context) : View(context) {
         isFakeBoldText = true
         textAlign = Paint.Align.CENTER
     }
+    private val nearMissPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 213, 79)
+        textSize = 56f
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+    }
+    private val comboPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 213, 79)
+        textSize = 38f
+        isFakeBoldText = true
+    }
+    private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 48f
+        textAlign = Paint.Align.CENTER
+    }
     private val mirrorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val mirrorGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val mirrorRimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -136,6 +151,11 @@ class GameView(context: Context) : View(context) {
         }
 
         drawHud(canvas)
+
+        // 니어미스 토스트 (주행 중, 콤보 강조)
+        if (state.phase == Phase.DRIVING && state.nearMissFlash > 0f) {
+            drawNearMiss(canvas)
+        }
 
         when (state.phase) {
             Phase.INTRO -> drawIntro(canvas)
@@ -222,7 +242,13 @@ class GameView(context: Context) : View(context) {
             24f, 110f, hudSmallPaint,
         )
         state.bestTime?.let {
-            canvas.drawText("🏆 %.1f".format(it), 24f, 152f, hudSmallPaint)
+            val stars = if (state.bestStars > 0) "  " + "★".repeat(state.bestStars) else ""
+            canvas.drawText("🏆 %.1f".format(it) + stars, 24f, 152f, hudSmallPaint)
+        }
+
+        // 니어미스 콤보 (주행 중 유지되는 카운터)
+        if (state.phase == Phase.DRIVING && state.nearMissCombo >= 2) {
+            canvas.drawText("콤보 x${state.nearMissCombo}", 24f, 196f, comboPaint)
         }
 
         // 시점 전환 버튼 (오른쪽 위)
@@ -271,6 +297,31 @@ class GameView(context: Context) : View(context) {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
         canvas.drawText(title, width / 2f, height / 2f - 30f, centerText)
         canvas.drawText(sub, width / 2f, height / 2f + 50f, centerSub)
+        // 승리 화면엔 별 등급을 함께
+        if (state.phase == Phase.WIN) {
+            drawStars(canvas, state.stars, width / 2f, height / 2f + 130f, 48f)
+        }
+    }
+
+    /** 니어미스 토스트: 화면 상단 중앙에 떠올랐다 사라진다. */
+    private fun drawNearMiss(canvas: Canvas) {
+        val a = (state.nearMissFlash.coerceIn(0f, 1f) * 255).toInt()
+        val rise = (1f - state.nearMissFlash) * 40f
+        val y = height * 0.32f - rise
+        nearMissPaint.alpha = a
+        val combo = state.nearMissCombo
+        val text = if (combo >= 2) "간발의 차! x$combo  +1초" else "간발의 차!  +1초"
+        canvas.drawText(text, width / 2f, y, nearMissPaint)
+    }
+
+    /** 별 등급을 채운 별/빈 별로 그린다. */
+    private fun drawStars(canvas: Canvas, filled: Int, cx: Float, cy: Float, size: Float) {
+        val gap = size * 1.3f
+        val startX = cx - gap
+        for (i in 0 until 3) {
+            starPaint.color = if (i < filled) Color.rgb(255, 213, 79) else Color.argb(90, 255, 255, 255)
+            canvas.drawText("★", startX + i * gap, cy, starPaint.also { it.textSize = size })
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")

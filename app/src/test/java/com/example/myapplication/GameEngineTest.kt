@@ -88,4 +88,25 @@ class GameEngineTest {
         assertTrue(GameEngine.touchesPickup(car, r, near))
         assertFalse(GameEngine.touchesPickup(car, r, far))
     }
+
+    @Test
+    fun `니어미스는 충돌 밖 근접 밴드에서만 참이다`() {
+        val touch = r + r // 48
+        // 겹침(충돌) → 니어미스 아님
+        assertFalse(GameEngine.isNearMiss(0f, 0f, r, touch - 2f, 0f, r))
+        // 밴드 안 → 니어미스
+        assertTrue(GameEngine.isNearMiss(0f, 0f, r, touch + 5f, 0f, r))
+        // 밴드 밖(너무 멈) → 니어미스 아님
+        assertFalse(GameEngine.isNearMiss(0f, 0f, r, touch * GameEngine.NEAR_MISS_FACTOR + 5f, 0f, r))
+    }
+
+    @Test
+    fun `별 등급은 남은 시간 구간을 따른다`() {
+        assertEquals(3, GameEngine.starsFor(20f))
+        assertEquals(3, GameEngine.starsFor(25f))
+        assertEquals(2, GameEngine.starsFor(10f))
+        assertEquals(2, GameEngine.starsFor(19.9f))
+        assertEquals(1, GameEngine.starsFor(9.9f))
+        assertEquals(1, GameEngine.starsFor(0.1f))
+    }
 }

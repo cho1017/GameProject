@@ -38,10 +38,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val CRASH_INVULN = 1.0f    // 리셋 직후 무적 시간(연쇄 충돌 방지)
         const val PICKUP_BONUS = 3f      // 시간 아이템 보너스
         const val MIRROR_RANGE = 260f    // 반사경이 차량을 감지하는 거리
+        const val NEAR_MISS_BONUS = 1f   // 니어미스 1회당 보너스(초)
         const val TRAIL_EVERY = 3        // 몇 프레임마다 잔상 점을 남길지
         const val TRAIL_MAX = 30         // 잔상 점 최대 개수
         const val PREFS = "game_records"
         const val KEY_BEST = "best_time_left"
+        const val KEY_BEST_STARS = "best_stars"
     }
 
     private val prefs = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -51,6 +53,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             walls = Level.walls,
             totalVehicles = Level.vehicles.size,
             bestTime = loadBest(),
+            bestStars = loadBestStars(),
         )
     )
     val ui: StateFlow<GameUiState> = _ui.asStateFlow()
@@ -69,6 +72,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var penaltyFlash = 0f
     private var shake = 0f
     private var elapsed = 0f
+    private var nearMissCombo = 0
+    private var nearMissFlash = 0f
+
+    /** 현재 니어미스 밴드 안에 있는 리플레이 차량 인덱스. 진입 순간에만 보너스를 준다. */
+    private val nearActive = HashSet<Int>()
 
     init {
         prepareRound()
@@ -97,6 +105,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         recordings.clear()
         roundIndex = 0
         timeLeft = START_TIME
+        nearMissCombo = 0
         prepareRound()
     }
 
@@ -109,6 +118,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         shake = 0f
         currentRecording.clear()
         trail.clear()
+        nearActive.clear()
         pickups = Level.pickupSpots
         _ui.value = _ui.value.copy(
             phase = Phase.INTRO,
@@ -142,6 +152,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         invuln = CRASH_INVULN
         penaltyFlash = 1f
         shake = 1f
+        nearMissCombo = 0
+        nearActive.clear()
         currentRecording.clear()
         trail.clear()
         _ui.value = _ui.value.copy(
@@ -166,6 +178,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (invuln > 0f) invuln -= DT
         if (penaltyFlash > 0f) penaltyFlash = (penaltyFlash - DT * 2f).coerceAtLeast(0f)
         if (shake > 0f) shake = (shake - DT * 3f).coerceAtLeast(0f)
+        if (nearMissFlash > 0f) nearMissFlash = (nearMissFlash - DT * 1.2f).coerceAtLeast(0f)
 
         if (frame % TRAIL_EVERY == 0) {
             trail.addLast(TrailPoint(player.x, player.y, 1f))
@@ -196,6 +209,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // 니어미스: 밴드에 새로 진입한 리플레이 차량마다 보너스 + 콤보
+        for ((i, g) in ghosts.withIndex()) {
+            if (!g.visible) { nearActive.remove(i); continue }
+            val near = GameEngine.isNearMiss(
+                player.x, player.y, spec.radius,
+                g.pose.x, g.pose.y, Level.vehicles[i].radius,
+            )
+            if (near && invuln <= 0f) {
+                if (nearActive.add(i)) { // 진입 순간에만
+                    nearMissCombo++
+                    timeLeft += NEAR_MISS_BONUS
+                    nearMissFlash = 1f
+                }
+            } else if (!near) {
+                nearActive.remove(i)
+            }
+        }
+
         // 시간 아이템 획득
         pickups = pickups.map { p ->
             if (!p.collected && GameEngine.touchesPickup(player, spec.radius, p)) {
@@ -211,6 +242,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val best = loadBest()
                 val newRecord = best == null || timeLeft > best
                 if (newRecord) saveBest(timeLeft)
+                val stars = GameEngine.starsFor(timeLeft)
+                val bestStars = maxOf(stars, loadBestStars())
+                if (bestStars > loadBestStars()) saveBestStars(bestStars)
                 _ui.value = state.copy(
                     phase = Phase.WIN,
                     timeLeft = timeLeft,
@@ -218,6 +252,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     ghosts = ghosts,
                     bestTime = if (newRecord) timeLeft else best,
                     newRecord = newRecord,
+                    stars = stars,
+                    bestStars = bestStars,
+                    nearMissCombo = nearMissCombo,
                 )
             } else {
                 timeLeft += ROUND_BONUS
@@ -236,6 +273,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             penaltyFlash = penaltyFlash,
             shake = shake,
             elapsed = elapsed,
+            nearMissCombo = nearMissCombo,
+            nearMissFlash = nearMissFlash,
         )
     }
 
@@ -261,6 +300,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveBest(value: Float) {
         prefs.edit().putFloat(KEY_BEST, value).apply()
+    }
+
+    private fun loadBestStars(): Int = prefs.getInt(KEY_BEST_STARS, 0)
+
+    private fun saveBestStars(value: Int) {
+        prefs.edit().putInt(KEY_BEST_STARS, value).apply()
     }
 
     @Suppress("DEPRECATION")
