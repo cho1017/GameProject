@@ -31,6 +31,7 @@ class ChaseRenderer {
         const val CAR_H = 32f       // 차량 높이 (납작하면 멀리서 안 보인다)
         const val BORDER_H = 45f    // 외곽 벽 높이 (건물보다 낮게)
         const val MIRROR_H = 70f    // 반사경 기둥 높이
+        const val GARDEN_H = 22f    // 화단 높이
         const val NEAR = 10f        // 근접 클리핑 평면
         const val FAR_FADE = 2600f  // 이 거리에서 완전히 어두워짐
         const val HORIZON_RATIO = 0.38f
@@ -48,6 +49,8 @@ class ChaseRenderer {
         isFakeBoldText = true
         textAlign = Paint.Align.CENTER
     }
+    private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val lanePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val miniBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 20, 28, 32) }
     private val miniPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
@@ -88,7 +91,11 @@ class ChaseRenderer {
         }
         skyPaint.shader = skyShader
         canvas.drawRect(0f, 0f, screenW, horizonY, skyPaint)
+        drawSky(canvas)
         canvas.drawRect(0f, horizonY, screenW, screenH, groundPaint)
+
+        // 도로 중앙선 점선: 바닥에 붙어 있으니 정렬 없이 바닥 직후에 그린다
+        drawLaneDashes(canvas)
 
         val jobs = ArrayList<Job>(64)
 
@@ -129,6 +136,63 @@ class ChaseRenderer {
         for (j in jobs) j.draw()
 
         drawMinimap(canvas, state)
+    }
+
+    /** 밤하늘: 별(결정적 위치)과 달. 카메라 요에 따라 살짝 흐른다. */
+    private fun drawSky(canvas: Canvas) {
+        // 별: 인덱스 기반 결정적 배치라 프레임마다 동일하다. 요(heading)에 따라 수평 이동.
+        val yaw = kotlin.math.atan2(sinH, cosH)
+        val drift = yaw / (2f * Math.PI.toFloat()) * screenW * 2f
+        starPaint.color = Color.argb(180, 255, 255, 255)
+        for (i in 0 until 48) {
+            val x = ((i * 293f + drift) % (screenW + 40f) + screenW + 40f) % (screenW + 40f) - 20f
+            val y = (i * 157f) % (horizonY * 0.85f)
+            val size = 1f + (i % 3) * 0.8f
+            canvas.drawCircle(x, y, size, starPaint)
+        }
+        // 달: 은은한 이중 원
+        val mx = ((screenW * 0.78f + drift) % (screenW + 200f) + screenW + 200f) % (screenW + 200f) - 100f
+        val my = horizonY * 0.30f
+        starPaint.color = Color.argb(60, 255, 250, 220)
+        canvas.drawCircle(mx, my, 46f, starPaint)
+        starPaint.color = Color.rgb(235, 228, 200)
+        canvas.drawCircle(mx, my, 34f, starPaint)
+        starPaint.color = Color.argb(60, 180, 170, 150)
+        canvas.drawCircle(mx - 10f, my - 8f, 7f, starPaint)
+        canvas.drawCircle(mx + 12f, my + 6f, 5f, starPaint)
+    }
+
+    /** 도로 중앙선을 짧은 바닥 사각형(대시)으로 투영해 그린다. */
+    private fun drawLaneDashes(canvas: Canvas) {
+        val dashLen = 34f
+        val gap = 30f
+        val halfW = 3.5f
+        lanePaint.color = Color.argb(95, 255, 235, 59)
+        for (seg in Level.roadLines) {
+            val dx = seg.x2 - seg.x1
+            val dy = seg.y2 - seg.y1
+            val len = kotlin.math.hypot(dx, dy)
+            val ux = dx / len
+            val uy = dy / len
+            // 수직 방향 (대시 폭)
+            val px = -uy * halfW
+            val py = ux * halfW
+            var d = 0f
+            while (d + dashLen <= len) {
+                val x1 = seg.x1 + ux * d
+                val y1 = seg.y1 + uy * d
+                val x2 = seg.x1 + ux * (d + dashLen)
+                val y2 = seg.y1 + uy * (d + dashLen)
+                val result = groundPolyPath(
+                    listOf(
+                        Pair(x1 + px, y1 + py), Pair(x2 + px, y2 + py),
+                        Pair(x2 - px, y2 - py), Pair(x1 - px, y1 - py),
+                    )
+                )
+                if (result != null) canvas.drawPath(result.first, lanePaint)
+                d += dashLen + gap
+            }
+        }
     }
 
     // ── 투영 ──────────────────────────────────────────────────────────
@@ -330,6 +394,38 @@ class ChaseRenderer {
     // ── 건물: 4개 측면 + 지붕 ─────────────────────────────────────────
 
     private fun addBuilding(jobs: MutableList<Job>, canvas: Canvas, w: com.example.myapplication.model.Wall) {
+        // 중앙 화단: 낮은 녹지 + 수풀
+        if (w == Level.garden) {
+            addPrism(
+                jobs, canvas,
+                corners = listOf(
+                    Pair(w.left, w.top), Pair(w.right, w.top),
+                    Pair(w.right, w.bottom), Pair(w.left, w.bottom),
+                ),
+                heightZ = GARDEN_H,
+                color = Color.rgb(67, 132, 78),
+            )
+            // 수풀: 화단 윗면 위 작은 원
+            val cx = (w.left + w.right) / 2f
+            var by = w.top + 30f
+            var i = 0
+            while (by < w.bottom - 20f) {
+                val bx = cx + if (i % 2 == 0) -7f else 7f
+                val bush = polyPathAt(circlePts(bx, by, 15f, 8), GARDEN_H + 1f)
+                if (bush != null) {
+                    val (_, f) = toCam(bx, by)
+                    val bushColor = if (i % 2 == 0) Color.rgb(56, 118, 68) else Color.rgb(46, 100, 58)
+                    val snapshot = Path(bush)
+                    jobs.add(Job(f - 2f) {
+                        polyPaint.color = shade(bushColor, f)
+                        canvas.drawPath(snapshot, polyPaint)
+                    })
+                }
+                by += 42f
+                i++
+            }
+            return
+        }
         // 월드 가장자리에 붙은 벽은 낮은 외곽 벽으로 그린다
         val isBorder = w.left <= 0f || w.top <= 0f || w.right >= Level.WORLD_W || w.bottom >= Level.WORLD_H
         addPrism(

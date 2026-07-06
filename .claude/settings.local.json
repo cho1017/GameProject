@@ -9,7 +9,8 @@
       "Bash(git fetch *)",
       "Bash(git checkout *)",
       "Bash(git stash *)",
-      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; cmd /c \".\\\\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --console=plain\" | Select-Object -Last 8)"
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; cmd /c \".\\\\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --console=plain\" | Select-Object -Last 8)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; cmd /c \".\\\\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --console=plain\" | Select-Object -Last 6)"
     ]
   }
 }

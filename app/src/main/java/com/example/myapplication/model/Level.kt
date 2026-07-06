@@ -11,6 +11,9 @@ object Level {
     /** 외곽 벽 두께. */
     const val BORDER = 25f
 
+    /** 중앙 화단. 렌더러가 건물과 다르게(녹지로) 그린다. walls보다 먼저 초기화되어야 한다. */
+    val garden = Wall(480f, 700f, 520f, 900f)
+
     /** 건물 블록. 사이사이가 도로가 된다. */
     val walls: List<Wall> = listOf(
         // 외곽 벽
@@ -27,7 +30,19 @@ object Level {
         Wall(180f, 1200f, 400f, 1430f),
         Wall(600f, 1200f, 820f, 1430f),
         // 중앙 분리 화단 (양옆 통로 폭 100 - 우유 트럭도 여유 있게)
-        Wall(480f, 700f, 520f, 900f),
+        garden,
+    )
+
+    /** 도로 중앙선(점선) 장식. 교차로와 화단 구간은 비워둔다. */
+    val roadLines: List<Segment> = listOf(
+        // 중앙 세로 도로
+        Segment(500f, 60f, 500f, 380f),
+        Segment(500f, 620f, 500f, 680f),
+        Segment(500f, 920f, 500f, 980f),
+        Segment(500f, 1220f, 500f, 1540f),
+        // 가로 도로 2개
+        Segment(60f, 500f, 940f, 500f),
+        Segment(60f, 1100f, 940f, 1100f),
     )
 
     /**
