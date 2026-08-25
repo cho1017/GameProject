@@ -10,8 +10,11 @@ import android.graphics.Shader
 import io.github.cho1017.commutechaos.model.GameEngine
 import io.github.cho1017.commutechaos.model.GameUiState
 import io.github.cho1017.commutechaos.model.Level
+import io.github.cho1017.commutechaos.model.Wall
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -55,6 +58,27 @@ class ChaseRenderer {
     private val miniPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private val miniRect = RectF()
+
+    /** 건물마다 다른 높이를 주기 위한 후보값들 (BUILD_H 기준 비율). */
+    private val buildingHeights = floatArrayOf(
+        BUILD_H, BUILD_H * 1.3f, BUILD_H * 0.75f, BUILD_H * 1.6f, BUILD_H * 1.1f,
+    )
+
+    /** 건물 재질 팔레트: 콘크리트/벽돌/슬레이트/타일/청록 패널. 몸체-지붕 색이 한 쌍으로 대응. */
+    private val buildingBodyPalette = intArrayOf(
+        Color.rgb(96, 125, 139),
+        Color.rgb(141, 110, 99),
+        Color.rgb(120, 144, 156),
+        Color.rgb(161, 136, 127),
+        Color.rgb(84, 122, 122),
+    )
+    private val buildingRoofPalette = intArrayOf(
+        Color.rgb(69, 90, 100),
+        Color.rgb(78, 52, 46),
+        Color.rgb(69, 90, 96),
+        Color.rgb(109, 87, 78),
+        Color.rgb(51, 77, 77),
+    )
 
     /** 깊이 정렬용 그리기 작업. */
     private class Job(val depth: Float, val draw: () -> Unit)
@@ -226,6 +250,17 @@ class ChaseRenderer {
         (color and 0xFF).toInt(),
     )
 
+    /** [shade]와 같지만 원래 색의 alpha(반투명)를 유지한다. 창문처럼 비치는 소재용. */
+    private fun shadeAlpha(color: Int, f: Float): Int {
+        val k = 1f - (f / FAR_FADE).coerceIn(0f, 0.75f)
+        return Color.argb(
+            Color.alpha(color),
+            (Color.red(color) * k).toInt(),
+            (Color.green(color) * k).toInt(),
+            (Color.blue(color) * k).toInt(),
+        )
+    }
+
     // ── 바닥 다각형 ───────────────────────────────────────────────────
 
     /**
@@ -335,7 +370,7 @@ class ChaseRenderer {
     }
 
     /**
-     * 바닥 다각형을 heightZ만큼 돌출시킨 기둥. 건물·차량 공용.
+     * 바닥 다각형을 [baseZ]에서 heightZ까지 돌출시킨 기둥. 건물·차량·옥상 구조물 공용.
      * 측면은 어둡게, 윗면은 [topBrightness] 배율로 그린다.
      */
     private fun addPrism(
@@ -343,11 +378,12 @@ class ChaseRenderer {
         corners: List<Pair<Float, Float>>, heightZ: Float, color: Int,
         topBrightness: Float = 1.0f,
         topExtra: ((Float) -> Unit)? = null,
+        baseZ: Float = 0f,
     ) {
         val cam = corners.map { toCam(it.first, it.second) }
         val faceShade = floatArrayOf(0.85f, 0.62f, 0.5f, 0.72f)
         for (i in corners.indices) {
-            addWallFace(jobs, canvas, cam[i], cam[(i + 1) % corners.size], heightZ, color, faceShade[i % 4])
+            addWallFace(jobs, canvas, cam[i], cam[(i + 1) % corners.size], heightZ, color, faceShade[i % 4], baseZ)
         }
         // 윗면: 모든 꼭짓점이 앞에 있을 때만 (클리핑 단순화)
         if (cam.all { it.second >= NEAR }) {
@@ -391,17 +427,35 @@ class ChaseRenderer {
         })
     }
 
-    // ── 건물: 4개 측면 + 지붕 ─────────────────────────────────────────
+    // ── 건물: 4개 측면 + 지붕 + 창문 + 옥상 구조물 ──────────────────────
 
-    private fun addBuilding(jobs: MutableList<Job>, canvas: Canvas, w: io.github.cho1017.commutechaos.model.Wall) {
+    private fun rectCorners(w: Wall): List<Pair<Float, Float>> = listOf(
+        Pair(w.left, w.top), Pair(w.right, w.top),
+        Pair(w.right, w.bottom), Pair(w.left, w.bottom),
+    )
+
+    /** 사각형 꼭짓점 목록을 안쪽으로 [margin]만큼 줄인다 (파라펫/옥상 트림용). */
+    private fun insetRect(corners: List<Pair<Float, Float>>, margin: Float): List<Pair<Float, Float>> {
+        val left = corners.minOf { it.first } + margin
+        val right = corners.maxOf { it.first } - margin
+        val top = corners.minOf { it.second } + margin
+        val bottom = corners.maxOf { it.second } - margin
+        return listOf(Pair(left, top), Pair(right, top), Pair(right, bottom), Pair(left, bottom))
+    }
+
+    /** 건물 위치 기반 결정적 시드 (높이/색/옥상 구조물 배치를 프레임마다 동일하게 고정). */
+    private fun buildingSeed(w: Wall): Int {
+        val sx = (w.left / 10f).toInt()
+        val sy = (w.top / 10f).toInt()
+        return (sx * 73 + sy * 131) and 0x7fffffff
+    }
+
+    private fun addBuilding(jobs: MutableList<Job>, canvas: Canvas, w: Wall) {
         // 중앙 화단: 낮은 녹지 + 수풀
         if (w == Level.garden) {
             addPrism(
                 jobs, canvas,
-                corners = listOf(
-                    Pair(w.left, w.top), Pair(w.right, w.top),
-                    Pair(w.right, w.bottom), Pair(w.left, w.bottom),
-                ),
+                corners = rectCorners(w),
                 heightZ = GARDEN_H,
                 color = Color.rgb(67, 132, 78),
             )
@@ -426,24 +480,140 @@ class ChaseRenderer {
             }
             return
         }
-        // 월드 가장자리에 붙은 벽은 낮은 외곽 벽으로 그린다
+
+        val corners = rectCorners(w)
+        // 월드 가장자리에 붙은 벽은 낮고 밋밋한 외곽 벽으로 그린다 (건물 아님)
         val isBorder = w.left <= 0f || w.top <= 0f || w.right >= Level.WORLD_W || w.bottom >= Level.WORLD_H
+        if (isBorder) {
+            addPrism(jobs, canvas, corners = corners, heightZ = BORDER_H, color = Color.rgb(84, 110, 122))
+            return
+        }
+
+        // 건물마다 높이/재질을 결정적으로 다르게 줘서 스카이라인에 변화를 준다
+        val seed = buildingSeed(w)
+        val height = buildingHeights[seed % buildingHeights.size]
+        val paletteIdx = (seed / 7) % buildingBodyPalette.size
+        val bodyColor = buildingBodyPalette[paletteIdx]
+        val roofColor = buildingRoofPalette[paletteIdx]
+
+        addPrism(
+            jobs, canvas,
+            corners = corners,
+            heightZ = height,
+            color = bodyColor,
+            topExtra = { _ ->
+                // 지붕 테두리(파라펫)를 살짝 어둡게 둘러 지붕이 납작해 보이지 않게 한다
+                val trim = polyPathAt(insetRect(corners, 14f), height + 0.4f)
+                if (trim != null) {
+                    polyPaint.color = roofColor
+                    canvas.drawPath(trim, polyPaint)
+                }
+            },
+        )
+        addBuildingWindows(jobs, canvas, corners, height, seed)
+        addRooftopUnit(jobs, canvas, w, height, seed)
+    }
+
+    /** 건물 네 벽면에 격자로 창문을 그린다. 일부는 결정적으로 불이 켜져 있다. */
+    private fun addBuildingWindows(
+        jobs: MutableList<Job>, canvas: Canvas,
+        corners: List<Pair<Float, Float>>, height: Float, seed: Int,
+    ) {
+        val winSize = 24f
+        val winStep = 62f
+        val marginEdge = 28f
+        val winH = 26f
+        val rowStep = 46f
+        val marginTop = 22f
+        val marginBottom = 20f
+
+        for (i in corners.indices) {
+            val a = corners[i]
+            val b = corners[(i + 1) % corners.size]
+            val dx = b.first - a.first
+            val dy = b.second - a.second
+            val len = hypot(dx, dy)
+            if (len < marginEdge * 2 + winSize) continue
+            val ux = dx / len
+            val uy = dy / len
+
+            var z = height - marginTop - winH
+            var row = 0
+            while (z > marginBottom) {
+                var t = marginEdge
+                var col = 0
+                while (t + winSize <= len - marginEdge) {
+                    val lit = (row * 7 + col * 13 + i * 5 + seed) % 5 == 0
+                    addWindowQuad(
+                        jobs, canvas,
+                        x1 = a.first + ux * t, y1 = a.second + uy * t,
+                        x2 = a.first + ux * (t + winSize), y2 = a.second + uy * (t + winSize),
+                        z0 = z, z1 = z + winH, lit = lit,
+                    )
+                    t += winStep
+                    col++
+                }
+                z -= rowStep
+                row++
+            }
+        }
+    }
+
+    /** 벽면 위의 창문 하나를 (x1,y1)-(x2,y2), [z0]~[z1] 사각형으로 투영해 그린다. */
+    private fun addWindowQuad(
+        jobs: MutableList<Job>, canvas: Canvas,
+        x1: Float, y1: Float, x2: Float, y2: Float, z0: Float, z1: Float, lit: Boolean,
+    ) {
+        val (r1, f1) = toCam(x1, y1)
+        val (r2, f2) = toCam(x2, y2)
+        if (f1 < NEAR || f2 < NEAR) return
+        val depth = (f1 + f2) / 2f
+        val color = if (lit) Color.argb(220, 255, 214, 120) else Color.argb(140, 22, 32, 40)
+        jobs.add(Job(depth - 0.6f) {
+            val p = Path().apply {
+                moveTo(projX(r1, f1), projY(f1, z0))
+                lineTo(projX(r2, f2), projY(f2, z0))
+                lineTo(projX(r2, f2), projY(f2, z1))
+                lineTo(projX(r1, f1), projY(f1, z1))
+                close()
+            }
+            polyPaint.color = shadeAlpha(color, depth)
+            canvas.drawPath(p, polyPaint)
+        })
+    }
+
+    /** 옥상 위 작은 설비함(에어컨 실외기/물탱크 느낌). 건물마다 위치가 결정적으로 다르다. */
+    private fun addRooftopUnit(jobs: MutableList<Job>, canvas: Canvas, w: Wall, height: Float, seed: Int) {
+        val bw = w.right - w.left
+        val bh = w.bottom - w.top
+        val size = (min(bw, bh) * 0.22f).coerceAtMost(34f)
+        if (size < 14f) return
+        val margin = size
+        val (cx, cy) = when (seed % 4) {
+            0 -> Pair(w.left + margin, w.top + margin)
+            1 -> Pair(w.right - margin, w.top + margin)
+            2 -> Pair(w.right - margin, w.bottom - margin)
+            else -> Pair(w.left + margin, w.bottom - margin)
+        }
+        val half = size / 2f
         addPrism(
             jobs, canvas,
             corners = listOf(
-                Pair(w.left, w.top), Pair(w.right, w.top),
-                Pair(w.right, w.bottom), Pair(w.left, w.bottom),
+                Pair(cx - half, cy - half), Pair(cx + half, cy - half),
+                Pair(cx + half, cy + half), Pair(cx - half, cy + half),
             ),
-            heightZ = if (isBorder) BORDER_H else BUILD_H,
-            color = if (isBorder) Color.rgb(84, 110, 122) else Color.rgb(96, 125, 139),
+            heightZ = height + size * 0.85f,
+            baseZ = height,
+            color = Color.rgb(124, 132, 136),
         )
     }
 
-    /** 두 바닥 꼭짓점(카메라 좌표) 사이의 수직 벽면. */
+    /** 두 바닥 꼭짓점(카메라 좌표) 사이의 [baseZ]~heightZ 수직 벽면. */
     private fun addWallFace(
         jobs: MutableList<Job>, canvas: Canvas,
         a: Pair<Float, Float>, b: Pair<Float, Float>,
         heightZ: Float, color: Int, brightness: Float,
+        baseZ: Float = 0f,
     ) {
         var (r1, f1) = a
         var (r2, f2) = b
@@ -456,8 +626,8 @@ class ChaseRenderer {
             if (!aIn) { r1 = rc; f1 = NEAR } else { r2 = rc; f2 = NEAR }
         }
         val face = Path().apply {
-            moveTo(projX(r1, f1), projY(f1))
-            lineTo(projX(r2, f2), projY(f2))
+            moveTo(projX(r1, f1), projY(f1, baseZ))
+            lineTo(projX(r2, f2), projY(f2, baseZ))
             lineTo(projX(r2, f2), projY(f2, heightZ))
             lineTo(projX(r1, f1), projY(f1, heightZ))
             close()

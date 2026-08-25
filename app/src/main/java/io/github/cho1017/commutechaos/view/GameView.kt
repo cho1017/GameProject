@@ -45,6 +45,16 @@ class GameView(context: Context) : View(context) {
     private val bushPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val wallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(69, 90, 100) }
     private val wallTopPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(96, 125, 139) }
+
+    /** 건물마다 다른 재질감을 주는 팔레트 (몸체/상단 한 쌍). ChaseRenderer와 톤을 맞췄다. */
+    private val buildingBodyPalette = intArrayOf(
+        Color.rgb(69, 90, 100), Color.rgb(93, 64, 55), Color.rgb(69, 90, 96),
+        Color.rgb(90, 74, 66), Color.rgb(51, 77, 77),
+    )
+    private val buildingTopPalette = intArrayOf(
+        Color.rgb(96, 125, 139), Color.rgb(124, 92, 82), Color.rgb(96, 125, 130),
+        Color.rgb(122, 103, 92), Color.rgb(84, 122, 122),
+    )
     private val goalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 6f
@@ -204,6 +214,10 @@ class GameView(context: Context) : View(context) {
                 canvas.drawRect(rect, borderWallPaint)
                 continue
             }
+            val seed = ((w.left / 10f).toInt() * 73 + (w.top / 10f).toInt() * 131) and 0x7fffffff
+            val paletteIdx = seed % buildingBodyPalette.size
+            wallPaint.color = buildingBodyPalette[paletteIdx]
+            wallTopPaint.color = buildingTopPalette[paletteIdx]
             canvas.drawRoundRect(rect, 12f, 12f, wallPaint)
             rect.inset(8f, 8f)
             rect.offset(0f, -4f)
