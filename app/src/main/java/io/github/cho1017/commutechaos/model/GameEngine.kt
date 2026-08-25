@@ -1,4 +1,4 @@
-package com.example.myapplication.model
+package io.github.cho1017.commutechaos.model
 
 import kotlin.math.cos
 import kotlin.math.hypot

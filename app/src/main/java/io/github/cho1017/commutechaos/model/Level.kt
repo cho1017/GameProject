@@ -1,4 +1,4 @@
-package com.example.myapplication.model
+package io.github.cho1017.commutechaos.model
 
 /**
  * 기본 레벨: 세로로 긴 동네 맵.

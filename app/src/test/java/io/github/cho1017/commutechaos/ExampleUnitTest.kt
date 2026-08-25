@@ -1,4 +1,4 @@
-package com.example.myapplication
+package io.github.cho1017.commutechaos
 
 import org.junit.Test
 

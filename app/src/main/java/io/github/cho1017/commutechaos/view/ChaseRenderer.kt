@@ -1,4 +1,4 @@
-package com.example.myapplication.view
+package io.github.cho1017.commutechaos.view
 
 import android.graphics.Canvas
 import android.graphics.Color
@@ -7,9 +7,9 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
-import com.example.myapplication.model.GameEngine
-import com.example.myapplication.model.GameUiState
-import com.example.myapplication.model.Level
+import io.github.cho1017.commutechaos.model.GameEngine
+import io.github.cho1017.commutechaos.model.GameUiState
+import io.github.cho1017.commutechaos.model.Level
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
@@ -393,7 +393,7 @@ class ChaseRenderer {
 
     // ── 건물: 4개 측면 + 지붕 ─────────────────────────────────────────
 
-    private fun addBuilding(jobs: MutableList<Job>, canvas: Canvas, w: com.example.myapplication.model.Wall) {
+    private fun addBuilding(jobs: MutableList<Job>, canvas: Canvas, w: io.github.cho1017.commutechaos.model.Wall) {
         // 중앙 화단: 낮은 녹지 + 수풀
         if (w == Level.garden) {
             addPrism(
@@ -471,7 +471,7 @@ class ChaseRenderer {
 
     // ── 코너 반사경: 기둥 + 거울 원판 ─────────────────────────────────
 
-    private fun addMirror(jobs: MutableList<Job>, canvas: Canvas, m: com.example.myapplication.model.MirrorState) {
+    private fun addMirror(jobs: MutableList<Job>, canvas: Canvas, m: io.github.cho1017.commutechaos.model.MirrorState) {
         val poleHalf = 5f
         // 기둥
         addPrism(

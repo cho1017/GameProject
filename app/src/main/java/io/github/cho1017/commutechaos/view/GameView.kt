@@ -1,4 +1,4 @@
-package com.example.myapplication.view
+package io.github.cho1017.commutechaos.view
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -8,10 +8,10 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
-import com.example.myapplication.model.GameEngine
-import com.example.myapplication.model.GameUiState
-import com.example.myapplication.model.Level
-import com.example.myapplication.model.Phase
+import io.github.cho1017.commutechaos.model.GameEngine
+import io.github.cho1017.commutechaos.model.GameUiState
+import io.github.cho1017.commutechaos.model.Level
+import io.github.cho1017.commutechaos.model.Phase
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -304,7 +304,7 @@ class GameView(context: Context) : View(context) {
     }
 
     /** 건물 옥상의 창문(채광창) 격자. 일부는 불이 켜져 있다. */
-    private fun drawWindows(canvas: Canvas, w: com.example.myapplication.model.Wall, sx: Float, sy: Float) {
+    private fun drawWindows(canvas: Canvas, w: io.github.cho1017.commutechaos.model.Wall, sx: Float, sy: Float) {
         val step = 55f
         val size = 20f
         var wy = w.top + 40f
@@ -327,7 +327,7 @@ class GameView(context: Context) : View(context) {
     }
 
     /** 중앙 화단: 녹지 + 수풀. */
-    private fun drawGardenTopDown(canvas: Canvas, w: com.example.myapplication.model.Wall, sx: Float, sy: Float) {
+    private fun drawGardenTopDown(canvas: Canvas, w: io.github.cho1017.commutechaos.model.Wall, sx: Float, sy: Float) {
         rect.set(w.left * sx, w.top * sy, w.right * sx, w.bottom * sy)
         canvas.drawRoundRect(rect, 14f, 14f, gardenPaint)
         val cx = (w.left + w.right) / 2f

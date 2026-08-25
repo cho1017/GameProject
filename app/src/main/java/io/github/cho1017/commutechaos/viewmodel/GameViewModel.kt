@@ -1,4 +1,4 @@
-package com.example.myapplication.viewmodel
+package io.github.cho1017.commutechaos.viewmodel
 
 import android.app.Application
 import android.content.Context
@@ -7,16 +7,16 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.myapplication.model.CarState
-import com.example.myapplication.model.GameEngine
-import com.example.myapplication.model.GameUiState
-import com.example.myapplication.model.GhostState
-import com.example.myapplication.model.Level
-import com.example.myapplication.model.MirrorState
-import com.example.myapplication.model.Phase
-import com.example.myapplication.model.Pickup
-import com.example.myapplication.model.Pose
-import com.example.myapplication.model.TrailPoint
+import io.github.cho1017.commutechaos.model.CarState
+import io.github.cho1017.commutechaos.model.GameEngine
+import io.github.cho1017.commutechaos.model.GameUiState
+import io.github.cho1017.commutechaos.model.GhostState
+import io.github.cho1017.commutechaos.model.Level
+import io.github.cho1017.commutechaos.model.MirrorState
+import io.github.cho1017.commutechaos.model.Phase
+import io.github.cho1017.commutechaos.model.Pickup
+import io.github.cho1017.commutechaos.model.Pose
+import io.github.cho1017.commutechaos.model.TrailPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

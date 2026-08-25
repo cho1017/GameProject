@@ -1,4 +1,4 @@
-package com.example.myapplication.view
+package io.github.cho1017.commutechaos.view
 
 import android.os.Bundle
 import androidx.activity.viewModels
@@ -6,7 +6,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.example.myapplication.viewmodel.GameViewModel
+import io.github.cho1017.commutechaos.viewmodel.GameViewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {

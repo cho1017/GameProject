@@ -1,4 +1,4 @@
-package com.example.myapplication.model
+package io.github.cho1017.commutechaos.model
 
 /** 한 프레임의 차량 위치/방향. 리플레이 기록의 단위. */
 data class Pose(val x: Float, val y: Float, val heading: Float)

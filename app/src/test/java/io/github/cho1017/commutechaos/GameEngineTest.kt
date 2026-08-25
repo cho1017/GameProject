@@ -1,9 +1,9 @@
-package com.example.myapplication
+package io.github.cho1017.commutechaos
 
-import com.example.myapplication.model.CarState
-import com.example.myapplication.model.GameEngine
-import com.example.myapplication.model.Pickup
-import com.example.myapplication.model.Wall
+import io.github.cho1017.commutechaos.model.CarState
+import io.github.cho1017.commutechaos.model.GameEngine
+import io.github.cho1017.commutechaos.model.Pickup
+import io.github.cho1017.commutechaos.model.Wall
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
