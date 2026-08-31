@@ -21,6 +21,8 @@
 - 도로에 떨어진 시간 아이템을 주우면 추가 시간을 얻습니다.
 - 코너 반사경이 사각지대에 다가오는 리플레이 차량을 미리 경고해줍니다.
 - 6대를 모두 보내면 승리! 남은 시간에 따라 별 1~3개 등급이 매겨집니다. 🎉
+- WIN 화면에서 "🌐 온라인 랭킹 보기"를 누르면 전 세계 플레이어 중 상위 기록을 볼 수 있습니다
+  (Firebase Firestore 연동, 설정 방법은 아래 참고).
 
 ## 왜 만들었나 / 배운 점
 
@@ -62,6 +64,28 @@ Android Studio에서 열어 Run ▶ 하면 바로 실행됩니다. (minSdk 24)
 
 푸시/PR마다 GitHub Actions에서 단위 테스트와 디버그 빌드를 자동으로 검증합니다
 (`.github/workflows/android-ci.yml`). 빌드된 APK는 Actions 실행의 Artifacts에서 내려받을 수 있습니다.
+
+## 온라인 리더보드 설정 (선택)
+
+기본 상태로는 리더보드가 비활성화돼 있고 게임은 완전히 오프라인으로 동작합니다.
+연결하려면:
+
+1. [Firebase 콘솔](https://console.firebase.google.com)에서 새 프로젝트를 만듭니다 (무료 Spark 요금제로 충분).
+2. 프로젝트 개요 → Android 아이콘으로 앱을 추가합니다. 패키지 이름은
+   `io.github.cho1017.commutechaos`. `google-services.json`은 내려받아도 되지만 이
+   프로젝트에서는 쓰지 않습니다 (Gradle 플러그인 없이 수동 초기화하는 구조라서요).
+3. 프로젝트 설정(⚙️) → 일반 탭 → "내 앱"에서 방금 등록한 앱을 선택하면 API 키 / 앱 ID /
+   프로젝트 ID가 보입니다. 이 세 값을
+   [`LeaderboardConfig.kt`](app/src/main/java/io/github/cho1017/commutechaos/data/LeaderboardConfig.kt)에
+   그대로 채워 넣습니다.
+4. Firestore Database를 프로덕션 모드로 만들고, 저장소 루트의
+   [`firestore.rules`](firestore.rules) 내용을 Firestore 콘솔의 "규칙" 탭에 붙여넣어
+   게시합니다.
+
+인증 없이 별명(닉네임)을 문서 ID로 쓰는 단순한 구조라 최소한의 백엔드 복잡도만
+필요합니다 — 별도 서버를 직접 만들거나 호스팅할 필요가 없습니다. 대신 다른 사람의
+별명 기록을 덮어쓰는 걸 막지는 못한다는 한계가 있고, `firestore.rules`에 그 이유와
+개선 방향(Firebase Anonymous Auth)을 적어 두었습니다.
 
 ## 라이선스
 

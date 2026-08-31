@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// 출근길 대란 온라인 리더보드 규칙.
+// 인증 없이 별명(닉네임)을 문서 ID로 쓰는 단순한 구조라, 값의 형태/범위만 검증한다.
+// (다른 사람의 별명 문서를 덮어쓰는 것 자체를 막지는 못한다 — 이후 Firebase Anonymous
+//  Auth를 붙여 request.auth.uid로 문서 ID를 제한하면 이 한계를 없앨 수 있다.)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /leaderboard/{nickname} {
+      allow read: if true;
+
+      allow write: if request.resource.data.keys().hasOnly(['nickname', 'timeLeft', 'stars', 'createdAt'])
+                   && request.resource.data.nickname is string
+                   && request.resource.data.nickname == nickname
+                   && request.resource.data.nickname.size() <= 24
+                   && request.resource.data.timeLeft is number
+                   && request.resource.data.timeLeft >= 0
+                   && request.resource.data.timeLeft <= 120
+                   && request.resource.data.stars is int
+                   && request.resource.data.stars >= 1
+                   && request.resource.data.stars <= 3
+                   && request.resource.data.createdAt is number;
+
+      allow delete: if false;
+    }
+  }
+}

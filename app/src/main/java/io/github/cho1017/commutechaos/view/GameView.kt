@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import io.github.cho1017.commutechaos.model.GameEngine
 import io.github.cho1017.commutechaos.model.GameUiState
+import io.github.cho1017.commutechaos.model.LeaderboardStatus
 import io.github.cho1017.commutechaos.model.Level
 import io.github.cho1017.commutechaos.model.Phase
 import kotlin.math.sin
@@ -21,6 +22,11 @@ import kotlin.random.Random
  */
 class GameView(context: Context) : View(context) {
 
+    private companion object {
+        /** WIN 패널에 화면상 몇 줄까지 보여줄지 (서버에서는 더 받아와도 됨). */
+        const val LEADERBOARD_ROWS = 5
+    }
+
     var onSteer: (Float) -> Unit = {}
     var onTap: () -> Unit = {}
 
@@ -29,6 +35,11 @@ class GameView(context: Context) : View(context) {
     private var cameraMode = CameraMode.CHASE
     private val chaseRenderer = ChaseRenderer()
     private val toggleRect = RectF()
+
+    /** WIN 화면에서 온라인 리더보드 패널을 펼쳤는지. 라운드가 바뀌면 자동으로 닫힌다. */
+    private var showLeaderboard = false
+    private val leaderboardToggleRect = RectF()
+    private val leaderboardPanelRect = RectF()
 
     private var state = GameUiState()
 
@@ -134,9 +145,33 @@ class GameView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
     }
 
+    private val leaderboardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(235, 26, 35, 41) }
+    private val leaderboardTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 213, 79)
+        textSize = 38f
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+    }
+    private val leaderboardRowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 32f
+    }
+    private val leaderboardMePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(129, 199, 132)
+        textSize = 32f
+        isFakeBoldText = true
+    }
+    private val leaderboardHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 255, 255, 255)
+        textSize = 28f
+        textAlign = Paint.Align.CENTER
+    }
+
     private val rect = RectF()
 
     fun render(newState: GameUiState) {
+        // 라운드가 다시 시작되면 (WIN이 아니게 되면) 리더보드 패널은 자동으로 닫는다.
+        if (newState.phase != Phase.WIN) showLeaderboard = false
         state = newState
         invalidate()
     }
@@ -187,6 +222,7 @@ class GameView(context: Context) : View(context) {
                     "남은 시간 %.1f초 · 탭해서 한 판 더".format(state.timeLeft)
                 }
                 drawOverlay(canvas, "전원 무사 도착! 🎉", sub)
+                drawLeaderboardSection(canvas)
             }
             Phase.DRIVING -> Unit
         }
@@ -401,12 +437,75 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * WIN 화면의 온라인 리더보드 버튼/패널.
+     * 닫혀 있으면 작은 "리더보드 보기" 버튼만, 펼치면 상위 기록 패널을 그린다.
+     */
+    private fun drawLeaderboardSection(canvas: Canvas) {
+        val cy = height / 2f
+        if (!showLeaderboard) {
+            leaderboardToggleRect.set(width / 2f - 140f, cy + 175f, width / 2f + 140f, cy + 235f)
+            canvas.drawRoundRect(leaderboardToggleRect, 16f, 16f, toggleBgPaint)
+            canvas.drawText(
+                "🌐 온라인 랭킹 보기", leaderboardToggleRect.centerX(), leaderboardToggleRect.centerY() + 12f, togglePaint,
+            )
+            return
+        }
+
+        leaderboardPanelRect.set(width * 0.1f, cy - 260f, width * 0.9f, cy + 235f)
+        canvas.drawRoundRect(leaderboardPanelRect, 20f, 20f, leaderboardBgPaint)
+        canvas.drawText("🌐 전체 랭킹 TOP $LEADERBOARD_ROWS", leaderboardPanelRect.centerX(), leaderboardPanelRect.top + 52f, leaderboardTitlePaint)
+
+        when (state.leaderboardStatus) {
+            LeaderboardStatus.LOADING -> canvas.drawText(
+                "불러오는 중…", leaderboardPanelRect.centerX(), leaderboardPanelRect.centerY(), leaderboardHintPaint,
+            )
+            LeaderboardStatus.UNAVAILABLE -> {
+                canvas.drawText(
+                    "온라인 리더보드가 아직 설정되지 않았어요", leaderboardPanelRect.centerX(), leaderboardPanelRect.centerY(), leaderboardHintPaint,
+                )
+            }
+            LeaderboardStatus.IDLE -> canvas.drawText(
+                "기록을 불러오지 못했어요", leaderboardPanelRect.centerX(), leaderboardPanelRect.centerY(), leaderboardHintPaint,
+            )
+            LeaderboardStatus.LOADED -> {
+                if (state.leaderboard.isEmpty()) {
+                    canvas.drawText(
+                        "아직 기록이 없어요. 첫 주인공이 되어보세요!",
+                        leaderboardPanelRect.centerX(), leaderboardPanelRect.centerY(), leaderboardHintPaint,
+                    )
+                } else {
+                    var ry = leaderboardPanelRect.top + 104f
+                    state.leaderboard.take(LEADERBOARD_ROWS).forEachIndexed { i, e ->
+                        val paint = if (e.nickname == state.nickname) leaderboardMePaint else leaderboardRowPaint
+                        val stars = "★".repeat(e.stars) + "☆".repeat(3 - e.stars)
+                        val line = "${i + 1}. ${e.nickname} — %.1f초 %s".format(e.timeLeft, stars)
+                        canvas.drawText(line, leaderboardPanelRect.left + 28f, ry, paint)
+                        ry += 44f
+                    }
+                }
+            }
+        }
+        canvas.drawText("탭해서 닫기", leaderboardPanelRect.centerX(), leaderboardPanelRect.bottom - 20f, leaderboardHintPaint)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (toggleRect.contains(event.x, event.y)) {
                     cameraMode = if (cameraMode == CameraMode.CHASE) CameraMode.TOP_DOWN else CameraMode.CHASE
+                    invalidate()
+                    return true
+                }
+                if (state.phase == Phase.WIN && showLeaderboard) {
+                    // 패널이 펼쳐진 동안은 아무 데나 탭해도 닫히기만 한다 (실수로 재시작 방지)
+                    showLeaderboard = false
+                    invalidate()
+                    return true
+                }
+                if (state.phase == Phase.WIN && leaderboardToggleRect.contains(event.x, event.y)) {
+                    showLeaderboard = true
                     invalidate()
                     return true
                 }

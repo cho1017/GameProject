@@ -7,10 +7,13 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.cho1017.commutechaos.data.LeaderboardConfig
+import io.github.cho1017.commutechaos.data.LeaderboardRepository
 import io.github.cho1017.commutechaos.model.CarState
 import io.github.cho1017.commutechaos.model.GameEngine
 import io.github.cho1017.commutechaos.model.GameUiState
 import io.github.cho1017.commutechaos.model.GhostState
+import io.github.cho1017.commutechaos.model.LeaderboardStatus
 import io.github.cho1017.commutechaos.model.Level
 import io.github.cho1017.commutechaos.model.MirrorState
 import io.github.cho1017.commutechaos.model.Phase
@@ -44,9 +47,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val PREFS = "game_records"
         const val KEY_BEST = "best_time_left"
         const val KEY_BEST_STARS = "best_stars"
+        const val KEY_NICKNAME = "nickname"
+        const val LEADERBOARD_TOP_N = 10
     }
 
     private val prefs = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val leaderboardRepository = LeaderboardRepository(application)
+
+    /** 이 기기에 고정된 온라인 리더보드 별명. 처음 생성될 때 한 번만 만들어 저장한다. */
+    private val nickname: String = loadOrCreateNickname()
 
     private val _ui = MutableStateFlow(
         GameUiState(
@@ -54,6 +63,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             totalVehicles = Level.vehicles.size,
             bestTime = loadBest(),
             bestStars = loadBestStars(),
+            nickname = nickname,
         )
     )
     val ui: StateFlow<GameUiState> = _ui.asStateFlow()
@@ -138,6 +148,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             penaltyFlash = 0f,
             shake = 0f,
             newRecord = false,
+            leaderboard = emptyList(),
+            leaderboardStatus = LeaderboardStatus.IDLE,
         )
     }
 
@@ -256,6 +268,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     bestStars = bestStars,
                     nearMissCombo = nearMissCombo,
                 )
+                refreshLeaderboard(timeLeft, stars)
             } else {
                 timeLeft += ROUND_BONUS
                 prepareRound()
@@ -306,6 +319,31 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveBestStars(value: Int) {
         prefs.edit().putInt(KEY_BEST_STARS, value).apply()
+    }
+
+    /** 저장된 별명이 없으면 차량 이름을 딴 별명을 하나 만들어 이 기기에 고정한다. */
+    private fun loadOrCreateNickname(): String {
+        prefs.getString(KEY_NICKNAME, null)?.let { return it }
+        val generated = "${Level.vehicles.random().name}-${(100..999).random()}"
+        prefs.edit().putString(KEY_NICKNAME, generated).apply()
+        return generated
+    }
+
+    /**
+     * 이번 기록을 온라인 리더보드에 제출(본인 최고 기록일 때만 반영)하고 상위 목록을 새로
+     * 받아온다. [LeaderboardConfig]가 비어 있으면 네트워크 호출 없이 바로 UNAVAILABLE.
+     */
+    private fun refreshLeaderboard(timeLeft: Float, stars: Int) {
+        if (!LeaderboardConfig.isConfigured) {
+            _ui.value = _ui.value.copy(leaderboardStatus = LeaderboardStatus.UNAVAILABLE)
+            return
+        }
+        _ui.value = _ui.value.copy(leaderboardStatus = LeaderboardStatus.LOADING)
+        viewModelScope.launch {
+            leaderboardRepository.submitIfBest(nickname, timeLeft, stars)
+            val top = leaderboardRepository.top(LEADERBOARD_TOP_N)
+            _ui.value = _ui.value.copy(leaderboard = top, leaderboardStatus = LeaderboardStatus.LOADED)
+        }
     }
 
     @Suppress("DEPRECATION")

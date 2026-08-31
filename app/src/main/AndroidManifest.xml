@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 온라인 리더보드(Firestore) 조회/제출용. LeaderboardConfig가 비어 있으면 실제로는 호출되지 않는다. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"

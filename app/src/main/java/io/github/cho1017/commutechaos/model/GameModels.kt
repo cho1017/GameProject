@@ -55,6 +55,17 @@ data class TrailPoint(val x: Float, val y: Float, val alpha: Float)
 
 enum class Phase { INTRO, DRIVING, GAME_OVER, WIN }
 
+/** 온라인 리더보드 한 줄. Firestore POJO 매핑을 위해 모든 필드에 기본값이 있어야 한다. */
+data class LeaderboardEntry(
+    val nickname: String = "",
+    val timeLeft: Float = 0f,
+    val stars: Int = 0,
+    val createdAt: Long = 0L,
+)
+
+/** 온라인 리더보드 패널의 조회 상태. */
+enum class LeaderboardStatus { IDLE, LOADING, LOADED, UNAVAILABLE }
+
 /** View가 그리는 데 필요한 모든 것. ViewModel이 매 틱 발행한다. */
 data class GameUiState(
     val phase: Phase = Phase.INTRO,
@@ -91,4 +102,10 @@ data class GameUiState(
     val nearMissCombo: Int = 0,
     /** 니어미스 직후 1→0으로 줄어드는 연출 강도(토스트 표시용). */
     val nearMissFlash: Float = 0f,
+    /** 이 기기에 저장된 내 온라인 리더보드 별명. */
+    val nickname: String = "",
+    /** 온라인 리더보드 상위 기록 (남은 시간 내림차순). */
+    val leaderboard: List<LeaderboardEntry> = emptyList(),
+    /** 리더보드 조회 상태. */
+    val leaderboardStatus: LeaderboardStatus = LeaderboardStatus.IDLE,
 )
