@@ -12,7 +12,7 @@ service cloud.firestore {
       allow write: if request.resource.data.keys().hasOnly(['nickname', 'timeLeft', 'stars', 'createdAt'])
                    && request.resource.data.nickname is string
                    && request.resource.data.nickname == nickname
-                   && request.resource.data.nickname.size() <= 24
+                   && request.resource.data.nickname.size() <= 40
                    && request.resource.data.timeLeft is number
                    && request.resource.data.timeLeft >= 0
                    && request.resource.data.timeLeft <= 120

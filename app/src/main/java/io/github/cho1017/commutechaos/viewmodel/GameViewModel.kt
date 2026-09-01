@@ -342,7 +342,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             leaderboardRepository.submitIfBest(nickname, timeLeft, stars)
             val top = leaderboardRepository.top(LEADERBOARD_TOP_N)
-            _ui.value = _ui.value.copy(leaderboard = top, leaderboardStatus = LeaderboardStatus.LOADED)
+            _ui.value = if (top == null) {
+                // 시간 초과/네트워크 오류: "기록 없음"과 구분해 실패로 표시
+                _ui.value.copy(leaderboardStatus = LeaderboardStatus.ERROR)
+            } else {
+                _ui.value.copy(leaderboard = top, leaderboardStatus = LeaderboardStatus.LOADED)
+            }
         }
     }
 

@@ -466,7 +466,11 @@ class GameView(context: Context) : View(context) {
                 )
             }
             LeaderboardStatus.IDLE -> canvas.drawText(
-                "기록을 불러오지 못했어요", leaderboardPanelRect.centerX(), leaderboardPanelRect.centerY(), leaderboardHintPaint,
+                "불러오는 중…", leaderboardPanelRect.centerX(), leaderboardPanelRect.centerY(), leaderboardHintPaint,
+            )
+            LeaderboardStatus.ERROR -> canvas.drawText(
+                "기록을 불러오지 못했어요. 네트워크를 확인해주세요",
+                leaderboardPanelRect.centerX(), leaderboardPanelRect.centerY(), leaderboardHintPaint,
             )
             LeaderboardStatus.LOADED -> {
                 if (state.leaderboard.isEmpty()) {
@@ -478,8 +482,10 @@ class GameView(context: Context) : View(context) {
                     var ry = leaderboardPanelRect.top + 104f
                     state.leaderboard.take(LEADERBOARD_ROWS).forEachIndexed { i, e ->
                         val paint = if (e.nickname == state.nickname) leaderboardMePaint else leaderboardRowPaint
-                        val stars = "★".repeat(e.stars) + "☆".repeat(3 - e.stars)
-                        val line = "${i + 1}. ${e.nickname} — %.1f초 %s".format(e.timeLeft, stars)
+                        // 아주 긴 별명이 패널을 벗어나지 않게 자른다
+                        val name = if (e.nickname.length > 14) e.nickname.take(14) + "…" else e.nickname
+                        val stars = "★".repeat(e.stars.coerceIn(0, 3)) + "☆".repeat(3 - e.stars.coerceIn(0, 3))
+                        val line = "${i + 1}. $name — %.1f초 %s".format(e.timeLeft, stars)
                         canvas.drawText(line, leaderboardPanelRect.left + 28f, ry, paint)
                         ry += 44f
                     }

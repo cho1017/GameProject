@@ -64,7 +64,7 @@ data class LeaderboardEntry(
 )
 
 /** 온라인 리더보드 패널의 조회 상태. */
-enum class LeaderboardStatus { IDLE, LOADING, LOADED, UNAVAILABLE }
+enum class LeaderboardStatus { IDLE, LOADING, LOADED, ERROR, UNAVAILABLE }
 
 /** View가 그리는 데 필요한 모든 것. ViewModel이 매 틱 발행한다. */
 data class GameUiState(

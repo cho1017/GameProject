@@ -59,9 +59,9 @@ class ChaseRenderer {
     private val path = Path()
     private val miniRect = RectF()
 
-    /** 건물마다 다른 높이를 주기 위한 후보값들 (BUILD_H 기준 비율). */
+    /** 건물마다 다른 높이를 주기 위한 후보값들 (BUILD_H 기준 비율). 가장 낮은 건물도 창문 한 줄은 들어가는 높이. */
     private val buildingHeights = floatArrayOf(
-        BUILD_H, BUILD_H * 1.3f, BUILD_H * 0.75f, BUILD_H * 1.6f, BUILD_H * 1.1f,
+        BUILD_H, BUILD_H * 1.3f, BUILD_H * 0.8f, BUILD_H * 1.6f, BUILD_H * 1.1f,
     )
 
     /** 건물 재질 팔레트: 콘크리트/벽돌/슬레이트/타일/청록 패널. 몸체-지붕 색이 한 쌍으로 대응. */
@@ -537,6 +537,15 @@ class ChaseRenderer {
             val ux = dx / len
             val uy = dy / len
 
+            // 창문의 깊이는 자신이 붙어 있는 벽면(잡)의 깊이에 고정한다. 창문 위치 기준의
+            // 깊이를 쓰면, 카메라에서 멀어지는 측면 벽에서 벽 평균보다 깊은 창문이 벽보다
+            // 먼저 그려져 벽에 가려지는 버그가 생긴다. (addWallFace의 근접 클리핑과 같은
+            // 방식으로 NEAR 밑을 잘라 평균 깊이를 계산한다.)
+            val aCam = toCam(a.first, a.second)
+            val bCam = toCam(b.first, b.second)
+            if (aCam.second < NEAR && bCam.second < NEAR) continue
+            val faceDepth = (max(aCam.second, NEAR) + max(bCam.second, NEAR)) / 2f
+
             var z = height - marginTop - winH
             var row = 0
             while (z > marginBottom) {
@@ -549,6 +558,7 @@ class ChaseRenderer {
                         x1 = a.first + ux * t, y1 = a.second + uy * t,
                         x2 = a.first + ux * (t + winSize), y2 = a.second + uy * (t + winSize),
                         z0 = z, z1 = z + winH, lit = lit,
+                        jobDepth = faceDepth - 0.6f,
                     )
                     t += winStep
                     col++
@@ -559,17 +569,21 @@ class ChaseRenderer {
         }
     }
 
-    /** 벽면 위의 창문 하나를 (x1,y1)-(x2,y2), [z0]~[z1] 사각형으로 투영해 그린다. */
+    /**
+     * 벽면 위의 창문 하나를 (x1,y1)-(x2,y2), [z0]~[z1] 사각형으로 투영해 그린다.
+     * [jobDepth]는 부모 벽면 깊이 기준으로 정해 벽 위에 확실히 그려지게 한다.
+     */
     private fun addWindowQuad(
         jobs: MutableList<Job>, canvas: Canvas,
         x1: Float, y1: Float, x2: Float, y2: Float, z0: Float, z1: Float, lit: Boolean,
+        jobDepth: Float,
     ) {
         val (r1, f1) = toCam(x1, y1)
         val (r2, f2) = toCam(x2, y2)
         if (f1 < NEAR || f2 < NEAR) return
         val depth = (f1 + f2) / 2f
         val color = if (lit) Color.argb(220, 255, 214, 120) else Color.argb(140, 22, 32, 40)
-        jobs.add(Job(depth - 0.6f) {
+        jobs.add(Job(jobDepth) {
             val p = Path().apply {
                 moveTo(projX(r1, f1), projY(f1, z0))
                 lineTo(projX(r2, f2), projY(f2, z0))
