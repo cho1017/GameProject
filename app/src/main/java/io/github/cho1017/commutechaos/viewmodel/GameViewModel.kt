@@ -49,6 +49,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_BEST_STARS = "best_stars"
         const val KEY_NICKNAME = "nickname"
         const val LEADERBOARD_TOP_N = 10
+
+        /** 이보다 높이 차가 크면 고가 위/아래로 분리된 것으로 보고 충돌/니어미스를 무시한다. */
+        const val LEVEL_SEPARATION = 30f
     }
 
     private val prefs = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -182,7 +185,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val player = GameEngine.step(
             state.player, steer, spec.speed, spec.turnRate, spec.radius, DT, Level.walls,
         )
-        currentRecording.add(Pose(player.x, player.y, player.heading))
+        currentRecording.add(Pose(player.x, player.y, player.heading, player.z))
         frame++
 
         timeLeft -= DT
@@ -192,7 +195,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (shake > 0f) shake = (shake - DT * 3f).coerceAtLeast(0f)
         if (nearMissFlash > 0f) nearMissFlash = (nearMissFlash - DT * 1.2f).coerceAtLeast(0f)
 
-        if (frame % TRAIL_EVERY == 0) {
+        if (frame % TRAIL_EVERY == 0 && player.z < 4f) { // 잔상은 지면에만 남긴다
             trail.addLast(TrailPoint(player.x, player.y, 1f))
             while (trail.size > TRAIL_MAX) trail.removeFirst()
         }
@@ -207,13 +210,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val ghosts = ghostsAt(frame)
 
-        // 과거의 나와 충돌 → 이 차량은 처음부터
+        // 과거의 나와 충돌 → 이 차량은 처음부터. 고가 위/아래로 갈린 차끼리는 부딪히지 않는다.
         if (invuln <= 0f) {
             val hit = ghosts.withIndex().any { (i, g) ->
-                g.visible && GameEngine.carsCollide(
-                    player.x, player.y, spec.radius,
-                    g.pose.x, g.pose.y, Level.vehicles[i].radius,
-                )
+                g.visible &&
+                    kotlin.math.abs(player.z - g.pose.z) < LEVEL_SEPARATION &&
+                    GameEngine.carsCollide(
+                        player.x, player.y, spec.radius,
+                        g.pose.x, g.pose.y, Level.vehicles[i].radius,
+                    )
             }
             if (hit) {
                 crash()
@@ -224,6 +229,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // 니어미스: 밴드에 새로 진입한 리플레이 차량마다 보너스 + 콤보
         for ((i, g) in ghosts.withIndex()) {
             if (!g.visible) { nearActive.remove(i); continue }
+            if (kotlin.math.abs(player.z - g.pose.z) >= LEVEL_SEPARATION) {
+                nearActive.remove(i) // 고가 위/아래는 스친 게 아니다
+                continue
+            }
             val near = GameEngine.isNearMiss(
                 player.x, player.y, spec.radius,
                 g.pose.x, g.pose.y, Level.vehicles[i].radius,
@@ -239,9 +248,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // 시간 아이템 획득
+        // 시간 아이템 획득 (지상 아이템이라 고가 위에서 지나가면 못 줍는다)
         pickups = pickups.map { p ->
-            if (!p.collected && GameEngine.touchesPickup(player, spec.radius, p)) {
+            if (!p.collected && player.z < 10f && GameEngine.touchesPickup(player, spec.radius, p)) {
                 timeLeft += PICKUP_BONUS
                 p.copy(collected = true)
             } else p

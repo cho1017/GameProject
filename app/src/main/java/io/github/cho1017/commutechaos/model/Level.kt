@@ -5,7 +5,12 @@ package io.github.cho1017.commutechaos.model
  * 좌표계는 월드 단위(0..WORLD_W, 0..WORLD_H)이며 View가 화면에 맞게 스케일한다.
  *
  * 도로망은 격자다: 내부 세로 도로 2개([vRoadXs]) + 내부 가로 도로 3개([hRoadYs]) +
- * 외곽 순환 도로. 중앙선/가장자리선/횡단보도는 이 격자에서 기계적으로 생성한다.
+ * 외곽 순환 도로. 도로 표시(중앙선/차로선/가장자리선/정지선/횡단보도)는 이 격자에서
+ * 기계적으로 생성한다.
+ *
+ * 가로 도로 2(y=[BRIDGE_Y])는 세로 도로 2(x=920) 위를 고가(다리)로 넘는다.
+ * 그 지점은 평면 교차로가 아니므로 횡단보도/정지선/반사경이 없고,
+ * 아래를 지나는 세로 도로의 차선은 다리 밑으로 계속 이어진다.
  */
 object Level {
     const val WORLD_W = 1400f
@@ -23,8 +28,31 @@ object Level {
     /** 내부 가로 도로 중심 y. */
     private val hRoadYs = listOf(500f, 1100f, 1700f)
 
-    /** 외곽 순환 도로 중심선 오프셋 (벽 25 + 도로 155의 가운데). */
-    private const val RING = 102.5f
+    // ── 다리(고가): 가로 도로 2가 세로 도로 2 위를 넘는다 ─────────────────
+    const val BRIDGE_Y = 1100f
+    const val BRIDGE_HALF_W = 84f
+    const val BRIDGE_H = 55f
+    const val BRIDGE_RAMP_W = 620f   // 서쪽 램프 시작 x (z=0)
+    const val BRIDGE_DECK_W = 780f   // 상판 시작 x (z=BRIDGE_H)
+    const val BRIDGE_DECK_E = 1060f  // 상판 끝 x
+    const val BRIDGE_RAMP_E = 1220f  // 동쪽 램프 끝 x (z=0)
+
+    /** 지상 차량에게 벽처럼 작동하는 램프 덩어리. 다리를 타는 차는 그 위를 달린다. */
+    val rampSolids: List<Wall> = listOf(
+        Wall(BRIDGE_RAMP_W, BRIDGE_Y - BRIDGE_HALF_W, BRIDGE_DECK_W, BRIDGE_Y + BRIDGE_HALF_W),
+        Wall(BRIDGE_DECK_E, BRIDGE_Y - BRIDGE_HALF_W, BRIDGE_RAMP_E, BRIDGE_Y + BRIDGE_HALF_W),
+    )
+
+    /** 다리 노면 높이. 다리 차선(y) 안에서 x에 따라 0 → BRIDGE_H → 0. */
+    fun bridgeProfile(x: Float): Float = when {
+        x < BRIDGE_RAMP_W || x > BRIDGE_RAMP_E -> 0f
+        x < BRIDGE_DECK_W -> (x - BRIDGE_RAMP_W) / (BRIDGE_DECK_W - BRIDGE_RAMP_W) * BRIDGE_H
+        x <= BRIDGE_DECK_E -> BRIDGE_H
+        else -> (BRIDGE_RAMP_E - x) / (BRIDGE_RAMP_E - BRIDGE_DECK_E) * BRIDGE_H
+    }
+
+    /** (x는 무관하게) 이 y가 다리 도로 폭 안에 있는가. */
+    fun inBridgeLane(y: Float): Boolean = kotlin.math.abs(y - BRIDGE_Y) <= BRIDGE_HALF_W
 
     /**
      * 도로 위 중앙 화단(분리대). 렌더러가 건물과 다르게(녹지로) 그린다.
@@ -77,74 +105,123 @@ object Level {
         return out
     }
 
-    private val hBlocks = hRoadYs.map { it - ROAD_HALF to it + ROAD_HALF }
-    private val vBlocks = vRoadXs.map { it - ROAD_HALF to it + ROAD_HALF }
+    /** 평면 교차로 목록. 다리 밑 (920, 1100)은 입체 교차라 제외한다. */
+    private val junctions: List<Pair<Float, Float>> =
+        vRoadXs.flatMap { vx -> hRoadYs.map { hy -> vx to hy } }
+            .filter { (vx, hy) -> !(vx == 920f && hy == BRIDGE_Y) }
 
-    /** 도로 중앙선(노란 점선). 교차로/화단 구간은 비워둔다. */
-    val roadLines: List<Segment> = buildList {
-        // 내부 세로 도로
+    /** 세로 도로 vx의 차선이 끊겨야 하는 구간 (평면 교차로만; 다리 밑은 이어진다). */
+    private fun vBlocked(vx: Float): List<Pair<Float, Float>> =
+        hRoadYs.filter { hy -> junctions.contains(vx to hy) }
+            .map { it - ROAD_HALF to it + ROAD_HALF }
+
+    private val bridgeBlock = (BRIDGE_RAMP_W - 20f) to (BRIDGE_RAMP_E + 20f)
+
+    /** 가로 도로 hy의 차선이 끊겨야 하는 구간. 다리 도로는 다리 구간 전체가 끊긴다(상판이 대신한다). */
+    private fun hBlocked(hy: Float): List<Pair<Float, Float>> =
+        if (hy == BRIDGE_Y) {
+            vRoadXs.filter { vx -> junctions.contains(vx to hy) }
+                .map { it - ROAD_HALF to it + ROAD_HALF } + listOf(bridgeBlock)
+        } else {
+            vRoadXs.map { it - ROAD_HALF to it + ROAD_HALF }
+        }
+
+    /** 중앙 이중 황색 실선 (내부 도로, 중심 ±5). 교차로/화단/다리 구간은 비운다. */
+    val centerLines: List<Segment> = buildList {
         for (vx in vRoadXs) {
             val gardenBlocks = gardens
                 .filter { it.left < vx && vx < it.right }
                 .map { it.top to it.bottom }
-            for ((a, b) in spans(60f, WORLD_H - 60f, hBlocks + gardenBlocks, 20f)) {
-                add(Segment(vx, a, vx, b))
-            }
-        }
-        // 내부 가로 도로
-        for (hy in hRoadYs) {
-            for ((a, b) in spans(60f, WORLD_W - 60f, vBlocks, 20f)) add(Segment(a, hy, b, hy))
-        }
-        // 외곽 순환 도로 (모서리 구간은 비운다)
-        for (x in listOf(RING, WORLD_W - RING)) {
-            for ((a, b) in spans(200f, WORLD_H - 200f, hBlocks, 20f)) add(Segment(x, a, x, b))
-        }
-        for (y in listOf(RING, WORLD_H - RING)) {
-            for ((a, b) in spans(200f, WORLD_W - 200f, vBlocks, 20f)) add(Segment(a, y, b, y))
-        }
-    }
-
-    /** 도로 가장자리 흰 실선 (내부 도로 양쪽). */
-    val edgeLines: List<Segment> = buildList {
-        val off = ROAD_HALF - 12f
-        for (vx in vRoadXs) {
-            for ((a, b) in spans(60f, WORLD_H - 60f, hBlocks, 6f)) {
-                add(Segment(vx - off, a, vx - off, b))
-                add(Segment(vx + off, a, vx + off, b))
+            for ((a, b) in spans(60f, WORLD_H - 60f, vBlocked(vx) + gardenBlocks, 20f)) {
+                add(Segment(vx - 5f, a, vx - 5f, b))
+                add(Segment(vx + 5f, a, vx + 5f, b))
             }
         }
         for (hy in hRoadYs) {
-            for ((a, b) in spans(60f, WORLD_W - 60f, vBlocks, 6f)) {
-                add(Segment(a, hy - off, b, hy - off))
-                add(Segment(a, hy + off, b, hy + off))
+            for ((a, b) in spans(60f, WORLD_W - 60f, hBlocked(hy), 20f)) {
+                add(Segment(a, hy - 5f, b, hy - 5f))
+                add(Segment(a, hy + 5f, b, hy + 5f))
             }
         }
     }
 
-    /** 내부 교차로 네 진입부의 횡단보도. */
-    val crosswalks: List<Crosswalk> = buildList {
+    /** 같은 방향 차로를 나누는 흰 점선 (중심 ±50). */
+    val laneDashes: List<Segment> = buildList {
         for (vx in vRoadXs) {
-            for (hy in hRoadYs) {
-                // 세로 도로를 건너는 남북 진입부 (줄무늬가 x 방향으로 반복)
-                add(Crosswalk(vx - 88f, hy - 94f, vx + 88f, hy - 62f, stripesAlongX = true))
-                add(Crosswalk(vx - 88f, hy + 62f, vx + 88f, hy + 94f, stripesAlongX = true))
-                // 가로 도로를 건너는 동서 진입부 (줄무늬가 y 방향으로 반복)
-                add(Crosswalk(vx - 94f, hy - 88f, vx - 62f, hy + 88f, stripesAlongX = false))
-                add(Crosswalk(vx + 62f, hy - 88f, vx + 94f, hy + 88f, stripesAlongX = false))
+            for ((a, b) in spans(60f, WORLD_H - 60f, vBlocked(vx), 20f)) {
+                add(Segment(vx - 50f, a, vx - 50f, b))
+                add(Segment(vx + 50f, a, vx + 50f, b))
+            }
+        }
+        for (hy in hRoadYs) {
+            for ((a, b) in spans(60f, WORLD_W - 60f, hBlocked(hy), 20f)) {
+                add(Segment(a, hy - 50f, b, hy - 50f))
+                add(Segment(a, hy + 50f, b, hy + 50f))
             }
         }
     }
 
     /**
-     * 코너 반사경 위치. 내부 교차로마다 대각선 모퉁이 두 곳에 세워져 있고,
+     * 도로 가장자리 흰 실선. 내부 도로는 양쪽(±88),
+     * 외곽 순환 도로는 블록 쪽에만 — 맵 끝 쪽은 연석뿐이라 선이 없는 게 자연스럽다.
+     */
+    val edgeLines: List<Segment> = buildList {
+        val off = ROAD_HALF - 12f
+        for (vx in vRoadXs) {
+            for ((a, b) in spans(60f, WORLD_H - 60f, vBlocked(vx), 6f)) {
+                add(Segment(vx - off, a, vx - off, b))
+                add(Segment(vx + off, a, vx + off, b))
+            }
+        }
+        for (hy in hRoadYs) {
+            for ((a, b) in spans(60f, WORLD_W - 60f, hBlocked(hy), 6f)) {
+                add(Segment(a, hy - off, b, hy - off))
+                add(Segment(a, hy + off, b, hy + off))
+            }
+        }
+        // 외곽 순환 도로 (블록 가장자리에서 10 안쪽)
+        val hB = hRoadYs.map { it - ROAD_HALF to it + ROAD_HALF }
+        val vB = vRoadXs.map { it - ROAD_HALF to it + ROAD_HALF }
+        for ((a, b) in spans(190f, WORLD_H - 190f, hB, 6f)) {
+            add(Segment(170f, a, 170f, b))
+            add(Segment(WORLD_W - 170f, a, WORLD_W - 170f, b))
+        }
+        for ((a, b) in spans(190f, WORLD_W - 190f, vB, 6f)) {
+            add(Segment(a, 170f, b, 170f))
+            add(Segment(a, WORLD_H - 170f, b, WORLD_H - 170f))
+        }
+    }
+
+    /** 교차로 진입 정지선. 우측통행 기준 진입 차로(도로 절반)에만 긋는다. */
+    val stopLines: List<Segment> = buildList {
+        for ((vx, hy) in junctions) {
+            add(Segment(vx - 88f, hy - 102f, vx - 6f, hy - 102f))  // 북쪽 진입(남행 차로)
+            add(Segment(vx + 6f, hy + 102f, vx + 88f, hy + 102f))  // 남쪽 진입(북행 차로)
+            add(Segment(vx - 102f, hy + 6f, vx - 102f, hy + 88f))  // 서쪽 진입(동행 차로)
+            add(Segment(vx + 102f, hy - 88f, vx + 102f, hy - 6f))  // 동쪽 진입(서행 차로)
+        }
+    }
+
+    /** 평면 교차로 네 진입부의 횡단보도. */
+    val crosswalks: List<Crosswalk> = buildList {
+        for ((vx, hy) in junctions) {
+            // 세로 도로를 건너는 남북 진입부 (줄무늬가 x 방향으로 반복)
+            add(Crosswalk(vx - 88f, hy - 94f, vx + 88f, hy - 62f, stripesAlongX = true))
+            add(Crosswalk(vx - 88f, hy + 62f, vx + 88f, hy + 94f, stripesAlongX = true))
+            // 가로 도로를 건너는 동서 진입부 (줄무늬가 y 방향으로 반복)
+            add(Crosswalk(vx - 94f, hy - 88f, vx - 62f, hy + 88f, stripesAlongX = false))
+            add(Crosswalk(vx + 62f, hy - 88f, vx + 94f, hy + 88f, stripesAlongX = false))
+        }
+    }
+
+    /**
+     * 코너 반사경 위치. 평면 교차로마다 대각선 모퉁이 두 곳에 세워져 있고,
      * 근처에 리플레이 차량이 오면 빛나서 사각지대를 경고한다.
      */
     val mirrors: List<Pair<Float, Float>> = buildList {
-        for (vx in vRoadXs) {
-            for (hy in hRoadYs) {
-                add(Pair(vx - ROAD_HALF, hy - ROAD_HALF))
-                add(Pair(vx + ROAD_HALF, hy + ROAD_HALF))
-            }
+        for ((vx, hy) in junctions) {
+            add(Pair(vx - ROAD_HALF, hy - ROAD_HALF))
+            add(Pair(vx + ROAD_HALF, hy + ROAD_HALF))
         }
     }
 
@@ -193,7 +270,7 @@ object Level {
         ),
         VehicleSpec(
             name = "드라이브 나온 할머니",
-            story = "급할 것 하나 없다. 하지만 도로는 그렇지 않지.",
+            story = "급할 것 하나 없다. 오늘은 고가도로 위 경치가 좋구나.",
             startX = 75f, startY = 1100f, startHeading = 0f.toRad(),
             goalX = 1325f, goalY = 1100f,
             speed = 185f, turnRate = 2.4f, radius = 24f,
@@ -201,7 +278,7 @@ object Level {
         ),
         VehicleSpec(
             name = "퇴근하는 택시",
-            story = "사납금은 채웠다. 이제 집까지 풀악셀.",
+            story = "사납금은 채웠다. 고가 넘어 집까지 풀악셀.",
             startX = 1325f, startY = 1100f, startHeading = 180f.toRad(),
             goalX = 75f, goalY = 1100f,
             speed = 310f, turnRate = 4.0f, radius = 22f,

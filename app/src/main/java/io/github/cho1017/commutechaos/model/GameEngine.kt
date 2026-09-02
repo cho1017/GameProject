@@ -17,7 +17,44 @@ object GameEngine {
     private const val ACCEL = 180f // unit/s^2
 
     /**
-     * 차량을 dt초만큼 전진시킨다.
+     * 다리 노면 추종 한계. 현재 높이와 노면 높이의 차가 이보다 작을 때만
+     * "다리를 타고 있는" 것으로 본다 — 램프를 오르는 차는 연속적으로 따라가고,
+     * 다리 밑을 지나는 차가 갑자기 상판 위로 점프하는 일은 없다.
+     */
+    private const val Z_SNAP = 10f
+
+    /** 원(차)을 사각형 밖으로 밀어낸다. 밀었으면 [pos]의 x, y를 고쳐 쓰고 true. */
+    private fun pushCircleOut(pos: FloatArray, radius: Float, w: Wall): Boolean {
+        val x = pos[0]
+        val y = pos[1]
+        val cx = x.coerceIn(w.left, w.right)
+        val cy = y.coerceIn(w.top, w.bottom)
+        val dx = x - cx
+        val dy = y - cy
+        val dist = hypot(dx, dy)
+        if (dist >= radius) return false
+        if (dist > 1e-4f) {
+            val push = radius - dist
+            pos[0] = x + dx / dist * push
+            pos[1] = y + dy / dist * push
+        } else {
+            // 중심이 사각형 내부: 가장 가까운 변으로 탈출
+            val toLeft = x - w.left
+            val toRight = w.right - x
+            val toTop = y - w.top
+            val toBottom = w.bottom - y
+            when (minOf(toLeft, toRight, toTop, toBottom)) {
+                toLeft -> pos[0] = w.left - radius
+                toRight -> pos[0] = w.right + radius
+                toTop -> pos[1] = w.top - radius
+                else -> pos[1] = w.bottom + radius
+            }
+        }
+        return true
+    }
+
+    /**
+     * 차량을 dt초만큼 전진시킨다. 다리(고가) 차선 안에서는 노면 높이(z)를 따라간다.
      * @param steer -1(좌회전)..1(우회전)
      * @param targetSpeed 이 차량의 순항 속도
      * @param turnRate 조향 각속도 (rad/s)
@@ -34,48 +71,44 @@ object GameEngine {
     ): CarState {
         val heading = car.heading + steer.coerceIn(-1f, 1f) * turnRate * dt
         val speed = (car.speed + ACCEL * dt).coerceAtMost(targetSpeed)
-        var x = car.x + cos(heading) * speed * dt
-        var y = car.y + sin(heading) * speed * dt
+        val pos = floatArrayOf(
+            car.x + cos(heading) * speed * dt,
+            car.y + sin(heading) * speed * dt,
+        )
         var newSpeed = speed
 
         // 월드 경계
         var hitWall = false
-        if (x < radius) { x = radius; hitWall = true }
-        if (x > Level.WORLD_W - radius) { x = Level.WORLD_W - radius; hitWall = true }
-        if (y < radius) { y = radius; hitWall = true }
-        if (y > Level.WORLD_H - radius) { y = Level.WORLD_H - radius; hitWall = true }
+        if (pos[0] < radius) { pos[0] = radius; hitWall = true }
+        if (pos[0] > Level.WORLD_W - radius) { pos[0] = Level.WORLD_W - radius; hitWall = true }
+        if (pos[1] < radius) { pos[1] = radius; hitWall = true }
+        if (pos[1] > Level.WORLD_H - radius) { pos[1] = Level.WORLD_H - radius; hitWall = true }
 
         // 건물 블록: 원-사각형 충돌, 가장 얕은 축으로 밀어낸다.
         for (w in walls) {
-            val cx = x.coerceIn(w.left, w.right)
-            val cy = y.coerceIn(w.top, w.bottom)
-            val dx = x - cx
-            val dy = y - cy
-            val dist = hypot(dx, dy)
-            if (dist < radius) {
-                hitWall = true
-                if (dist > 1e-4f) {
-                    val push = radius - dist
-                    x += dx / dist * push
-                    y += dy / dist * push
-                } else {
-                    // 중심이 사각형 내부: 가장 가까운 변으로 탈출
-                    val toLeft = x - w.left
-                    val toRight = w.right - x
-                    val toTop = y - w.top
-                    val toBottom = w.bottom - y
-                    when (minOf(toLeft, toRight, toTop, toBottom)) {
-                        toLeft -> x = w.left - radius
-                        toRight -> x = w.right + radius
-                        toTop -> y = w.top - radius
-                        else -> y = w.bottom + radius
-                    }
-                }
+            if (pushCircleOut(pos, radius, w)) hitWall = true
+        }
+
+        // ── 다리(고가) ──────────────────────────────────────────────
+        val profile = if (Level.inBridgeLane(pos[1])) Level.bridgeProfile(pos[0]) else 0f
+        val riding = profile > 0f && kotlin.math.abs(car.z - profile) < Z_SNAP
+        var z = 0f
+        if (riding) {
+            z = profile
+            // 난간: 다리 위에서는 차선 밖으로 벗어날 수 없다
+            val top = Level.BRIDGE_Y - Level.BRIDGE_HALF_W + radius
+            val bottom = Level.BRIDGE_Y + Level.BRIDGE_HALF_W - radius
+            if (pos[1] < top) { pos[1] = top; hitWall = true }
+            if (pos[1] > bottom) { pos[1] = bottom; hitWall = true }
+        } else {
+            // 지상 차에게 램프 덩어리는 벽이다 (다리 밑 상판 구간은 뚫려 있어 통과)
+            for (w in Level.rampSolids) {
+                if (pushCircleOut(pos, radius, w)) hitWall = true
             }
         }
         if (hitWall) newSpeed = speed * WALL_SLOWDOWN
 
-        return CarState(x, y, heading, newSpeed)
+        return CarState(pos[0], pos[1], heading, newSpeed, z)
     }
 
     /** 니어미스 판정 거리 = (두 반지름 합) * 이 배수. 충돌은 아니지만 스칠 정도. */

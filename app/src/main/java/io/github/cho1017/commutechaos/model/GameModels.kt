@@ -1,7 +1,7 @@
 package io.github.cho1017.commutechaos.model
 
-/** 한 프레임의 차량 위치/방향. 리플레이 기록의 단위. */
-data class Pose(val x: Float, val y: Float, val heading: Float)
+/** 한 프레임의 차량 위치/방향. 리플레이 기록의 단위. [z]는 고가(다리) 위 높이. */
+data class Pose(val x: Float, val y: Float, val heading: Float, val z: Float = 0f)
 
 /** 축 정렬 사각형 장애물(건물 블록). */
 data class Wall(val left: Float, val top: Float, val right: Float, val bottom: Float)
@@ -40,12 +40,13 @@ data class VehicleSpec(
     val color: Long,
 )
 
-/** 현재 조작 중인 차량의 물리 상태. */
+/** 현재 조작 중인 차량의 물리 상태. [z]는 고가(다리) 위 노면 높이 (지상은 0). */
 data class CarState(
     val x: Float,
     val y: Float,
     val heading: Float,
     val speed: Float,
+    val z: Float = 0f,
 )
 
 /** 과거 라운드 차량의 리플레이 표시 상태. */

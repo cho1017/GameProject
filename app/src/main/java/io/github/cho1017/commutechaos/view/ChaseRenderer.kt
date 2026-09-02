@@ -91,6 +91,7 @@ class ChaseRenderer {
     // 카메라 상태 (draw마다 갱신)
     private var camX = 0f
     private var camY = 0f
+    private var camZ = CAM_H // 플레이어가 고가에 오르면 카메라도 같이 올라간다
     private var cosH = 1f
     private var sinH = 0f
     private var focal = 0f
@@ -110,6 +111,7 @@ class ChaseRenderer {
         sinH = sin(p.heading)
         camX = p.x - cosH * CAM_BACK
         camY = p.y - sinH * CAM_BACK
+        camZ = CAM_H + p.z
 
         // 하늘 & 바닥 (아침 출근 시간: 지평선 쪽이 해 뜨는 주황빛)
         if (skyShader == null) {
@@ -124,7 +126,9 @@ class ChaseRenderer {
         canvas.drawRect(0f, horizonY, screenW, screenH, groundPaint)
 
         // 도로 표시: 바닥에 붙어 있으니 정렬 없이 바닥 직후에 그린다
-        drawEdgeLines(canvas)
+        drawSolidSegs(canvas, Level.edgeLines, 3f, Color.argb(150, 245, 245, 245))
+        drawSolidSegs(canvas, Level.centerLines, 3f, Color.argb(185, 235, 178, 48))
+        drawSolidSegs(canvas, Level.stopLines, 7f, Color.argb(185, 238, 240, 242))
         drawLaneDashes(canvas)
         drawCrosswalks(canvas)
 
@@ -150,17 +154,20 @@ class ChaseRenderer {
         // 건물
         for (wall in state.walls) addBuilding(jobs, canvas, wall)
 
+        // 고가도로 (램프 + 상판 + 난간 + 교각)
+        addBridge(jobs, canvas)
+
         // 코너 반사경
         for (m in state.mirrors) addMirror(jobs, canvas, m)
 
         // 리플레이 차량
         for (g in state.ghosts) {
             if (!g.visible) continue
-            addCar(jobs, canvas, g.pose.x, g.pose.y, g.pose.heading, g.radius, g.color)
+            addCar(jobs, canvas, g.pose.x, g.pose.y, g.pose.heading, g.radius, g.color, g.pose.z)
         }
 
         // 플레이어
-        addCar(jobs, canvas, p.x, p.y, p.heading, state.playerRadius, state.playerColor)
+        addCar(jobs, canvas, p.x, p.y, p.heading, state.playerRadius, state.playerColor, p.z)
 
         // 먼 것부터 그린다
         jobs.sortByDescending { it.depth }
@@ -202,13 +209,13 @@ class ChaseRenderer {
         return f > FAR_FADE || f < -300f
     }
 
-    /** 도로 중앙선을 짧은 바닥 사각형(대시)으로 투영해 그린다. */
+    /** 차로 구분 흰 점선을 짧은 바닥 사각형(대시)으로 투영해 그린다. */
     private fun drawLaneDashes(canvas: Canvas) {
         val dashLen = 34f
         val gap = 30f
-        val halfW = 3.5f
-        lanePaint.color = Color.argb(150, 244, 196, 68)
-        for (seg in Level.roadLines) {
+        val halfW = 3f
+        lanePaint.color = Color.argb(130, 240, 240, 240)
+        for (seg in Level.laneDashes) {
             val dx = seg.x2 - seg.x1
             val dy = seg.y2 - seg.y1
             val len = kotlin.math.hypot(dx, dy)
@@ -237,11 +244,10 @@ class ChaseRenderer {
         }
     }
 
-    /** 도로 가장자리 흰 실선: 세그먼트 하나를 통째로 얇은 바닥 사각형으로 그린다. */
-    private fun drawEdgeLines(canvas: Canvas) {
-        val halfW = 3f
-        lanePaint.color = Color.argb(150, 245, 245, 245)
-        for (seg in Level.edgeLines) {
+    /** 실선(가장자리선/중앙선/정지선): 세그먼트 하나를 통째로 얇은 바닥 사각형으로 그린다. */
+    private fun drawSolidSegs(canvas: Canvas, segs: List<io.github.cho1017.commutechaos.model.Segment>, halfW: Float, color: Int) {
+        lanePaint.color = color
+        for (seg in segs) {
             // 양 끝과 중점 모두 안개 너머면 통째로 생략
             val mx = (seg.x1 + seg.x2) / 2f
             val my = (seg.y1 + seg.y2) / 2f
@@ -311,7 +317,7 @@ class ChaseRenderer {
     private fun projX(r: Float, f: Float) = screenW / 2f + r * focal / f
 
     /** 바닥(z=0) 또는 높이 z인 점의 화면 y. */
-    private fun projY(f: Float, z: Float = 0f) = horizonY + (CAM_H - z) * focal / f
+    private fun projY(f: Float, z: Float = 0f) = horizonY + (camZ - z) * focal / f
 
     /**
      * 거리에 따라 아침 안개색으로 옅어지는 색 (대기 원근).
@@ -416,9 +422,10 @@ class ChaseRenderer {
     private fun addCar(
         jobs: MutableList<Job>, canvas: Canvas,
         x: Float, y: Float, heading: Float, radius: Float, color: Long,
+        z: Float = 0f,
     ) {
         val rgb = colorWithAlpha(color, 255)
-        // 차체: 높이 있는 박스. 지붕에 앞유리를 얹는다.
+        // 차체: 높이 있는 박스. 지붕에 앞유리를 얹는다. 고가 위의 차는 노면 높이 z에서 시작한다.
         val c = cos(heading)
         val s = sin(heading)
         val glassCorners = carCorners(
@@ -427,11 +434,12 @@ class ChaseRenderer {
         addPrism(
             jobs, canvas,
             corners = carCorners(x, y, heading, radius * 1.25f, radius * 0.75f),
-            heightZ = CAR_H,
+            heightZ = z + CAR_H,
+            baseZ = z,
             color = rgb,
             topBrightness = 1.1f,
             topExtra = { topDepth ->
-                val glass = polyPathAt(glassCorners, CAR_H + 0.5f)
+                val glass = polyPathAt(glassCorners, z + CAR_H + 0.5f)
                 if (glass != null) {
                     polyPaint.color = Color.argb(190, 20, 30, 40)
                     canvas.drawPath(glass, polyPaint)
@@ -739,6 +747,120 @@ class ChaseRenderer {
         })
     }
 
+    // ── 고가도로: 경사 램프 + 상판 + 난간 + 교각 ──────────────────────
+
+    /**
+     * 임의 높이의 3D 꼭짓점들(각각 [x, y, z])을 투영해 채워진 면으로 등록한다.
+     * 하나라도 카메라 뒤면 그리지 않는다 (간략화).
+     */
+    private fun add3DFace(
+        jobs: MutableList<Job>, canvas: Canvas,
+        pts: List<FloatArray>, color: Int, brightness: Float, depthBias: Float = 0f,
+    ) {
+        val p = Path()
+        var depth = 0f
+        for ((i, pt) in pts.withIndex()) {
+            val (r, f) = toCam(pt[0], pt[1])
+            if (f < NEAR) return
+            depth += f
+            val sx = projX(r, f)
+            val sy = projY(f, pt[2])
+            if (i == 0) p.moveTo(sx, sy) else p.lineTo(sx, sy)
+        }
+        p.close()
+        val avg = depth / pts.size
+        jobs.add(Job(avg + depthBias) {
+            polyPaint.color = shade(color, avg, brightness)
+            canvas.drawPath(p, polyPaint)
+        })
+    }
+
+    private fun addBridge(jobs: MutableList<Job>, canvas: Canvas) {
+        val yTop = Level.BRIDGE_Y - Level.BRIDGE_HALF_W
+        val yBot = Level.BRIDGE_Y + Level.BRIDGE_HALF_W
+        val h = Level.BRIDGE_H
+        val deckColor = Color.rgb(148, 148, 152)   // 콘크리트 노면
+        val sideColor = Color.rgb(122, 122, 128)   // 구조물 옆면
+        val railColor = Color.rgb(96, 104, 112)
+
+        // 램프 2개: [x0, x1, z0, z1] (경사 윗면 + 양 옆면)
+        val ramps = listOf(
+            floatArrayOf(Level.BRIDGE_RAMP_W, Level.BRIDGE_DECK_W, 0f, h),
+            floatArrayOf(Level.BRIDGE_DECK_E, Level.BRIDGE_RAMP_E, h, 0f),
+        )
+        for (ramp in ramps) {
+            val x0 = ramp[0]
+            val x1 = ramp[1]
+            val z0 = ramp[2]
+            val z1 = ramp[3]
+            // 경사 노면
+            add3DFace(
+                jobs, canvas,
+                listOf(
+                    floatArrayOf(x0, yTop, z0), floatArrayOf(x1, yTop, z1),
+                    floatArrayOf(x1, yBot, z1), floatArrayOf(x0, yBot, z0),
+                ),
+                deckColor, 0.95f, depthBias = -0.5f,
+            )
+            // 북쪽/남쪽 옆면 (지면부터 노면까지의 삼각꼴)
+            add3DFace(
+                jobs, canvas,
+                listOf(
+                    floatArrayOf(x0, yTop, 0f), floatArrayOf(x1, yTop, 0f),
+                    floatArrayOf(x1, yTop, z1), floatArrayOf(x0, yTop, z0),
+                ),
+                sideColor, 0.62f,
+            )
+            add3DFace(
+                jobs, canvas,
+                listOf(
+                    floatArrayOf(x0, yBot, 0f), floatArrayOf(x1, yBot, 0f),
+                    floatArrayOf(x1, yBot, z1), floatArrayOf(x0, yBot, z0),
+                ),
+                sideColor, 0.72f,
+            )
+        }
+
+        // 상판: 두께 있는 슬래브
+        addPrism(
+            jobs, canvas,
+            corners = listOf(
+                Pair(Level.BRIDGE_DECK_W, yTop), Pair(Level.BRIDGE_DECK_E, yTop),
+                Pair(Level.BRIDGE_DECK_E, yBot), Pair(Level.BRIDGE_DECK_W, yBot),
+            ),
+            heightZ = h,
+            baseZ = h - 10f,
+            color = deckColor,
+        )
+        // 난간: 상판 양쪽 가장자리의 낮은 벽
+        for (railY in listOf(yTop, yBot - 6f)) {
+            addPrism(
+                jobs, canvas,
+                corners = listOf(
+                    Pair(Level.BRIDGE_DECK_W, railY), Pair(Level.BRIDGE_DECK_E, railY),
+                    Pair(Level.BRIDGE_DECK_E, railY + 6f), Pair(Level.BRIDGE_DECK_W, railY + 6f),
+                ),
+                heightZ = h + 12f,
+                baseZ = h,
+                color = railColor,
+            )
+        }
+        // 교각: 상판을 받치는 기둥들 (아래 도로의 차선을 피해서 배치)
+        for (px in listOf(Level.BRIDGE_DECK_W + 30f, Level.BRIDGE_DECK_E - 30f)) {
+            for (py in listOf(Level.BRIDGE_Y - 52f, Level.BRIDGE_Y + 52f)) {
+                addPrism(
+                    jobs, canvas,
+                    corners = listOf(
+                        Pair(px - 8f, py - 8f), Pair(px + 8f, py - 8f),
+                        Pair(px + 8f, py + 8f), Pair(px - 8f, py + 8f),
+                    ),
+                    heightZ = h - 10f,
+                    color = Color.rgb(110, 112, 118),
+                )
+            }
+        }
+    }
+
     // ── 코너 반사경: 기둥 + 거울 원판 ─────────────────────────────────
 
     private fun addMirror(jobs: MutableList<Job>, canvas: Canvas, m: io.github.cho1017.commutechaos.model.MirrorState) {
@@ -788,6 +910,13 @@ class ChaseRenderer {
         for (w in state.walls) {
             canvas.drawRect(mx + w.left * s, my + w.top * s, mx + w.right * s, my + w.bottom * s, miniPaint)
         }
+        // 고가도로
+        miniPaint.color = Color.argb(230, 150, 150, 156)
+        canvas.drawRect(
+            mx + Level.BRIDGE_RAMP_W * s, my + (Level.BRIDGE_Y - Level.BRIDGE_HALF_W) * s,
+            mx + Level.BRIDGE_RAMP_E * s, my + (Level.BRIDGE_Y + Level.BRIDGE_HALF_W) * s,
+            miniPaint,
+        )
         // 목적지
         miniPaint.color = Color.rgb(102, 187, 106)
         canvas.drawCircle(mx + state.goalX * s, my + state.goalY * s, max(5f, GameEngine.GOAL_RADIUS * s), miniPaint)

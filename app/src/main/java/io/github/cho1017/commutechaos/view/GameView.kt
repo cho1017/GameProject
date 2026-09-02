@@ -25,6 +25,12 @@ class GameView(context: Context) : View(context) {
     private companion object {
         /** WIN 패널에 화면상 몇 줄까지 보여줄지 (서버에서는 더 받아와도 됨). */
         const val LEADERBOARD_ROWS = 5
+
+        /**
+         * 이 높이 이상이면 다리 구조물 위를 달리는 차로 보고 다리보다 나중에(위에) 그린다.
+         * 지상에서 다리 밑을 지나는 차는 z가 정확히 0이다.
+         */
+        const val ELEVATED_Z = 0.5f
     }
 
     var onSteer: (Float) -> Unit = {}
@@ -45,17 +51,39 @@ class GameView(context: Context) : View(context) {
 
     private val bgPaint = Paint().apply { color = Color.rgb(104, 112, 118) } // 아침 아스팔트
     private val laneLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(170, 244, 196, 68)
-        strokeWidth = 5f
+        color = Color.argb(140, 240, 240, 240) // 차로 구분 흰 점선
+        strokeWidth = 4f
         style = Paint.Style.STROKE
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(28f, 22f), 0f)
+    }
+    private val centerLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 235, 178, 48) // 중앙 이중 황색 실선
+        strokeWidth = 4f
+        style = Paint.Style.STROKE
     }
     private val edgeLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(150, 245, 245, 245)
         strokeWidth = 4f
         style = Paint.Style.STROKE
     }
+    private val stopLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(190, 238, 240, 242)
+        strokeWidth = 10f
+        style = Paint.Style.STROKE
+    }
     private val crosswalkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 238, 240, 242) }
+    private val rampPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(130, 130, 134) }
+    private val deckPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(150, 150, 156) }
+    private val railPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(88, 96, 104)
+        strokeWidth = 6f
+        style = Paint.Style.STROKE
+    }
+    private val rampStepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(70, 40, 44, 48)
+        strokeWidth = 3f
+        style = Paint.Style.STROKE
+    }
     private val borderWallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(84, 110, 122) }
     private val windowDetailPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val gardenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(67, 132, 78) }
@@ -249,9 +277,19 @@ class GameView(context: Context) : View(context) {
             canvas.drawLine(l.x1 * sx, l.y1 * sy, l.x2 * sx, l.y2 * sy, edgeLinePaint)
         }
 
-        // 도로 중앙선 (노란 점선)
-        for (l in Level.roadLines) {
+        // 중앙 이중 황색 실선
+        for (l in Level.centerLines) {
+            canvas.drawLine(l.x1 * sx, l.y1 * sy, l.x2 * sx, l.y2 * sy, centerLinePaint)
+        }
+
+        // 차로 구분 흰 점선
+        for (l in Level.laneDashes) {
             canvas.drawLine(l.x1 * sx, l.y1 * sy, l.x2 * sx, l.y2 * sy, laneLinePaint)
+        }
+
+        // 정지선
+        for (l in Level.stopLines) {
+            canvas.drawLine(l.x1 * sx, l.y1 * sy, l.x2 * sx, l.y2 * sy, stopLinePaint)
         }
 
         // 횡단보도
@@ -317,15 +355,47 @@ class GameView(context: Context) : View(context) {
             canvas.drawCircle(t.x * sx, t.y * sy, state.playerRadius * 0.45f * sx, trailPaint)
         }
 
-        // 리플레이 차량들
+        // 지상의 차 → 고가도로 → 고가 위의 차 순서로 그려 위아래가 제대로 가려지게 한다
+        val p = state.player
         for (g in state.ghosts) {
-            if (!g.visible) continue
+            if (!g.visible || g.pose.z >= ELEVATED_Z) continue
             drawCar(canvas, g.pose.x, g.pose.y, g.pose.heading, g.radius, g.color)
         }
+        if (p.z < ELEVATED_Z) drawCar(canvas, p.x, p.y, p.heading, state.playerRadius, state.playerColor)
 
-        // 플레이어
-        val p = state.player
-        drawCar(canvas, p.x, p.y, p.heading, state.playerRadius, state.playerColor)
+        drawBridgeTopDown(canvas, sx, sy)
+
+        for (g in state.ghosts) {
+            if (!g.visible || g.pose.z < ELEVATED_Z) continue
+            drawCar(canvas, g.pose.x, g.pose.y, g.pose.heading, g.radius, g.color)
+        }
+        if (p.z >= ELEVATED_Z) drawCar(canvas, p.x, p.y, p.heading, state.playerRadius, state.playerColor)
+    }
+
+    /** 고가도로 (탑다운): 램프 2개 + 상판 + 난간. */
+    private fun drawBridgeTopDown(canvas: Canvas, sx: Float, sy: Float) {
+        val top = (Level.BRIDGE_Y - Level.BRIDGE_HALF_W) * sy
+        val bottom = (Level.BRIDGE_Y + Level.BRIDGE_HALF_W) * sy
+
+        // 램프: 경사면 느낌으로 가로 눈금선을 넣는다
+        for ((x0, x1) in listOf(
+            Pair(Level.BRIDGE_RAMP_W, Level.BRIDGE_DECK_W),
+            Pair(Level.BRIDGE_DECK_E, Level.BRIDGE_RAMP_E),
+        )) {
+            rect.set(x0 * sx, top, x1 * sx, bottom)
+            canvas.drawRect(rect, rampPaint)
+            var gx = x0 + 30f
+            while (gx < x1) {
+                canvas.drawLine(gx * sx, top, gx * sx, bottom, rampStepPaint)
+                gx += 30f
+            }
+        }
+
+        // 상판 + 난간
+        rect.set(Level.BRIDGE_DECK_W * sx, top, Level.BRIDGE_DECK_E * sx, bottom)
+        canvas.drawRect(rect, deckPaint)
+        canvas.drawLine(Level.BRIDGE_DECK_W * sx, top, Level.BRIDGE_DECK_E * sx, top, railPaint)
+        canvas.drawLine(Level.BRIDGE_DECK_W * sx, bottom, Level.BRIDGE_DECK_E * sx, bottom, railPaint)
     }
 
     /** HUD와 시점 전환 버튼. 두 시점 공통. */

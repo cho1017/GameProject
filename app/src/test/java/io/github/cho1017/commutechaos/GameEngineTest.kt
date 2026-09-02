@@ -2,6 +2,7 @@ package io.github.cho1017.commutechaos
 
 import io.github.cho1017.commutechaos.model.CarState
 import io.github.cho1017.commutechaos.model.GameEngine
+import io.github.cho1017.commutechaos.model.Level
 import io.github.cho1017.commutechaos.model.Pickup
 import io.github.cho1017.commutechaos.model.Wall
 import org.junit.Assert.assertEquals
@@ -108,5 +109,42 @@ class GameEngineTest {
         assertEquals(2, GameEngine.starsFor(19.9f))
         assertEquals(1, GameEngine.starsFor(9.9f))
         assertEquals(1, GameEngine.starsFor(0.1f))
+    }
+
+    // ── 고가도로(다리) ────────────────────────────────────────────────
+
+    @Test
+    fun `램프로 진입한 차는 다리 위로 올라갔다 내려온다`() {
+        var car = CarState(Level.BRIDGE_RAMP_W - 40f, Level.BRIDGE_Y, heading = 0f, speed = 300f)
+        var maxZ = 0f
+        repeat(160) {
+            car = GameEngine.step(car, 0f, 300f, 3f, 22f, 0.016f, Level.walls)
+            maxZ = maxOf(maxZ, car.z)
+        }
+        assertEquals("상판 높이까지 올라가야 함", Level.BRIDGE_H, maxZ, 1f)
+        assertEquals("동쪽 램프를 내려와 지상으로 복귀해야 함", 0f, car.z, 0.01f)
+        assertTrue("다리를 지나 동쪽으로 진행해야 함", car.x > Level.BRIDGE_RAMP_E)
+    }
+
+    @Test
+    fun `다리 밑을 지나는 차는 지상에 머문다`() {
+        // 세로 도로 2(x=920)를 따라 남쪽으로: 상판 밑을 통과한다
+        var car = CarState(920f, 960f, heading = (Math.PI / 2).toFloat(), speed = 200f)
+        repeat(90) {
+            car = GameEngine.step(car, 0f, 200f, 3f, 22f, 0.016f, Level.walls)
+            assertEquals("다리 밑에서는 항상 지상", 0f, car.z, 0.01f)
+        }
+        assertTrue("다리 구간을 통과해야 함", car.y > Level.BRIDGE_Y + Level.BRIDGE_HALF_W)
+    }
+
+    @Test
+    fun `지상 차는 램프 덩어리를 뚫을 수 없다`() {
+        // 상판 밑(x=1000)에서 동쪽으로: 동쪽 램프의 서쪽 벽에 막혀야 한다
+        var car = CarState(1000f, Level.BRIDGE_Y, heading = 0f, speed = 200f)
+        repeat(120) {
+            car = GameEngine.step(car, 0f, 200f, 3f, r, 0.016f, Level.walls)
+        }
+        assertTrue("램프 벽에 막혀야 함", car.x <= Level.BRIDGE_DECK_E - r + 0.5f)
+        assertEquals(0f, car.z, 0.01f)
     }
 }
