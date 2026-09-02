@@ -36,8 +36,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val TICK_MS = 16L
         const val DT = TICK_MS / 1000f
-        const val START_TIME = 25f       // 첫 제한 시간(초)
-        const val ROUND_BONUS = 8f       // 라운드 클리어 보너스
+        const val START_TIME = 32f       // 첫 제한 시간(초) — 맵이 커진 만큼 여유 있게
+        const val ROUND_BONUS = 10f      // 라운드 클리어 보너스
         const val CRASH_INVULN = 1.0f    // 리셋 직후 무적 시간(연쇄 충돌 방지)
         const val PICKUP_BONUS = 3f      // 시간 아이템 보너스
         const val MIRROR_RANGE = 260f    // 반사경이 차량을 감지하는 거리

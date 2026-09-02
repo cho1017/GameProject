@@ -36,12 +36,17 @@ class ChaseRenderer {
         const val MIRROR_H = 70f    // 반사경 기둥 높이
         const val GARDEN_H = 22f    // 화단 높이
         const val NEAR = 10f        // 근접 클리핑 평면
-        const val FAR_FADE = 2600f  // 이 거리에서 완전히 어두워짐
+        const val FAR_FADE = 2600f  // 이 거리에서 아침 안개에 완전히 잠김
         const val HORIZON_RATIO = 0.38f
+
+        // 아침 안개(대기 원근)색. 멀수록 이 색에 가까워진다.
+        const val HAZE_R = 216
+        const val HAZE_G = 198
+        const val HAZE_B = 178
     }
 
     private val skyPaint = Paint()
-    private val groundPaint = Paint().apply { color = Color.rgb(45, 58, 64) }
+    private val groundPaint = Paint().apply { color = Color.rgb(92, 100, 106) }
     private val polyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -106,11 +111,11 @@ class ChaseRenderer {
         camX = p.x - cosH * CAM_BACK
         camY = p.y - sinH * CAM_BACK
 
-        // 하늘 & 바닥
+        // 하늘 & 바닥 (아침 출근 시간: 지평선 쪽이 해 뜨는 주황빛)
         if (skyShader == null) {
             skyShader = LinearGradient(
                 0f, 0f, 0f, horizonY,
-                Color.rgb(16, 24, 38), Color.rgb(58, 72, 86), Shader.TileMode.CLAMP,
+                Color.rgb(110, 156, 205), Color.rgb(255, 205, 148), Shader.TileMode.CLAMP,
             )
         }
         skyPaint.shader = skyShader
@@ -118,8 +123,10 @@ class ChaseRenderer {
         drawSky(canvas)
         canvas.drawRect(0f, horizonY, screenW, screenH, groundPaint)
 
-        // 도로 중앙선 점선: 바닥에 붙어 있으니 정렬 없이 바닥 직후에 그린다
+        // 도로 표시: 바닥에 붙어 있으니 정렬 없이 바닥 직후에 그린다
+        drawEdgeLines(canvas)
         drawLaneDashes(canvas)
+        drawCrosswalks(canvas)
 
         val jobs = ArrayList<Job>(64)
 
@@ -162,28 +169,37 @@ class ChaseRenderer {
         drawMinimap(canvas, state)
     }
 
-    /** 밤하늘: 별(결정적 위치)과 달. 카메라 요에 따라 살짝 흐른다. */
+    /** 아침 하늘: 떠오르는 해와 옅은 구름. 카메라 요에 따라 살짝 흐른다. */
     private fun drawSky(canvas: Canvas) {
-        // 별: 인덱스 기반 결정적 배치라 프레임마다 동일하다. 요(heading)에 따라 수평 이동.
         val yaw = kotlin.math.atan2(sinH, cosH)
         val drift = yaw / (2f * Math.PI.toFloat()) * screenW * 2f
-        starPaint.color = Color.argb(180, 255, 255, 255)
-        for (i in 0 until 48) {
-            val x = ((i * 293f + drift) % (screenW + 40f) + screenW + 40f) % (screenW + 40f) - 20f
-            val y = (i * 157f) % (horizonY * 0.85f)
-            val size = 1f + (i % 3) * 0.8f
-            canvas.drawCircle(x, y, size, starPaint)
+
+        // 해: 지평선 가까이 낮게 떠 있는 밝은 원 + 글로우
+        val sunX = ((screenW * 0.30f + drift) % (screenW + 300f) + screenW + 300f) % (screenW + 300f) - 150f
+        val sunY = horizonY * 0.62f
+        starPaint.color = Color.argb(60, 255, 205, 120)
+        canvas.drawCircle(sunX, sunY, 96f, starPaint)
+        starPaint.color = Color.argb(110, 255, 224, 158)
+        canvas.drawCircle(sunX, sunY, 60f, starPaint)
+        starPaint.color = Color.rgb(255, 246, 218)
+        canvas.drawCircle(sunX, sunY, 40f, starPaint)
+
+        // 구름: 결정적 위치의 납작한 타원 무리 (매 프레임 동일, 요에 따라 흐른다)
+        starPaint.color = Color.argb(88, 255, 255, 255)
+        for (i in 0 until 6) {
+            val cx = ((i * 373f + 90f + drift * 0.6f) % (screenW + 260f) + screenW + 260f) % (screenW + 260f) - 130f
+            val cy = horizonY * (0.18f + (i % 3) * 0.16f)
+            val w = 90f + (i % 4) * 34f
+            val h = 16f + (i % 3) * 5f
+            canvas.drawOval(cx - w, cy - h, cx + w, cy + h, starPaint)
+            canvas.drawOval(cx - w * 0.45f, cy - h * 1.7f, cx + w * 0.55f, cy + h * 0.3f, starPaint)
         }
-        // 달: 은은한 이중 원
-        val mx = ((screenW * 0.78f + drift) % (screenW + 200f) + screenW + 200f) % (screenW + 200f) - 100f
-        val my = horizonY * 0.30f
-        starPaint.color = Color.argb(60, 255, 250, 220)
-        canvas.drawCircle(mx, my, 46f, starPaint)
-        starPaint.color = Color.rgb(235, 228, 200)
-        canvas.drawCircle(mx, my, 34f, starPaint)
-        starPaint.color = Color.argb(60, 180, 170, 150)
-        canvas.drawCircle(mx - 10f, my - 8f, 7f, starPaint)
-        canvas.drawCircle(mx + 12f, my + 6f, 5f, starPaint)
+    }
+
+    /** 이 지점이 카메라 뒤이거나 안개 너머면 그릴 필요가 없다 (도로 표시용 저렴한 컬링). */
+    private fun cullFar(wx: Float, wy: Float): Boolean {
+        val (_, f) = toCam(wx, wy)
+        return f > FAR_FADE || f < -300f
     }
 
     /** 도로 중앙선을 짧은 바닥 사각형(대시)으로 투영해 그린다. */
@@ -191,7 +207,7 @@ class ChaseRenderer {
         val dashLen = 34f
         val gap = 30f
         val halfW = 3.5f
-        lanePaint.color = Color.argb(95, 255, 235, 59)
+        lanePaint.color = Color.argb(150, 244, 196, 68)
         for (seg in Level.roadLines) {
             val dx = seg.x2 - seg.x1
             val dy = seg.y2 - seg.y1
@@ -205,16 +221,80 @@ class ChaseRenderer {
             while (d + dashLen <= len) {
                 val x1 = seg.x1 + ux * d
                 val y1 = seg.y1 + uy * d
-                val x2 = seg.x1 + ux * (d + dashLen)
-                val y2 = seg.y1 + uy * (d + dashLen)
-                val result = groundPolyPath(
-                    listOf(
-                        Pair(x1 + px, y1 + py), Pair(x2 + px, y2 + py),
-                        Pair(x2 - px, y2 - py), Pair(x1 - px, y1 - py),
+                if (!cullFar(x1, y1)) {
+                    val x2 = seg.x1 + ux * (d + dashLen)
+                    val y2 = seg.y1 + uy * (d + dashLen)
+                    val result = groundPolyPath(
+                        listOf(
+                            Pair(x1 + px, y1 + py), Pair(x2 + px, y2 + py),
+                            Pair(x2 - px, y2 - py), Pair(x1 - px, y1 - py),
+                        )
                     )
-                )
-                if (result != null) canvas.drawPath(result.first, lanePaint)
+                    if (result != null) canvas.drawPath(result.first, lanePaint)
+                }
                 d += dashLen + gap
+            }
+        }
+    }
+
+    /** 도로 가장자리 흰 실선: 세그먼트 하나를 통째로 얇은 바닥 사각형으로 그린다. */
+    private fun drawEdgeLines(canvas: Canvas) {
+        val halfW = 3f
+        lanePaint.color = Color.argb(150, 245, 245, 245)
+        for (seg in Level.edgeLines) {
+            // 양 끝과 중점 모두 안개 너머면 통째로 생략
+            val mx = (seg.x1 + seg.x2) / 2f
+            val my = (seg.y1 + seg.y2) / 2f
+            if (cullFar(seg.x1, seg.y1) && cullFar(seg.x2, seg.y2) && cullFar(mx, my)) continue
+            val dx = seg.x2 - seg.x1
+            val dy = seg.y2 - seg.y1
+            val len = kotlin.math.hypot(dx, dy)
+            if (len < 1f) continue
+            val px = -dy / len * halfW
+            val py = dx / len * halfW
+            val result = groundPolyPath(
+                listOf(
+                    Pair(seg.x1 + px, seg.y1 + py), Pair(seg.x2 + px, seg.y2 + py),
+                    Pair(seg.x2 - px, seg.y2 - py), Pair(seg.x1 - px, seg.y1 - py),
+                )
+            )
+            if (result != null) canvas.drawPath(result.first, lanePaint)
+        }
+    }
+
+    /** 횡단보도: 얼룩말 줄무늬를 바닥 사각형들로 그린다. */
+    private fun drawCrosswalks(canvas: Canvas) {
+        val stripe = 12f
+        val gap = 10f
+        lanePaint.color = Color.argb(185, 238, 240, 242)
+        for (c in Level.crosswalks) {
+            val cx = (c.left + c.right) / 2f
+            val cy = (c.top + c.bottom) / 2f
+            if (cullFar(cx, cy)) continue
+            if (c.stripesAlongX) {
+                var x = c.left
+                while (x + stripe <= c.right) {
+                    val result = groundPolyPath(
+                        listOf(
+                            Pair(x, c.top), Pair(x + stripe, c.top),
+                            Pair(x + stripe, c.bottom), Pair(x, c.bottom),
+                        )
+                    )
+                    if (result != null) canvas.drawPath(result.first, lanePaint)
+                    x += stripe + gap
+                }
+            } else {
+                var y = c.top
+                while (y + stripe <= c.bottom) {
+                    val result = groundPolyPath(
+                        listOf(
+                            Pair(c.left, y), Pair(c.right, y),
+                            Pair(c.right, y + stripe), Pair(c.left, y + stripe),
+                        )
+                    )
+                    if (result != null) canvas.drawPath(result.first, lanePaint)
+                    y += stripe + gap
+                }
             }
         }
     }
@@ -233,13 +313,17 @@ class ChaseRenderer {
     /** 바닥(z=0) 또는 높이 z인 점의 화면 y. */
     private fun projY(f: Float, z: Float = 0f) = horizonY + (CAM_H - z) * focal / f
 
-    /** 거리에 따라 어두워지는 색. */
+    /**
+     * 거리에 따라 아침 안개색으로 옅어지는 색 (대기 원근).
+     * [factor]는 면 밝기 배율(가짜 조명)로, 안개 혼합 후에 곱한다.
+     */
     private fun shade(color: Int, f: Float, factor: Float = 1f): Int {
-        val k = (1f - (f / FAR_FADE).coerceIn(0f, 0.75f)) * factor
+        val t = (f / FAR_FADE).coerceIn(0f, 0.65f)
+        fun ch(c: Int, haze: Int) = ((c + (haze - c) * t) * factor).toInt().coerceIn(0, 255)
         return Color.rgb(
-            (Color.red(color) * k).toInt(),
-            (Color.green(color) * k).toInt(),
-            (Color.blue(color) * k).toInt(),
+            ch(Color.red(color), HAZE_R),
+            ch(Color.green(color), HAZE_G),
+            ch(Color.blue(color), HAZE_B),
         )
     }
 
@@ -252,12 +336,13 @@ class ChaseRenderer {
 
     /** [shade]와 같지만 원래 색의 alpha(반투명)를 유지한다. 창문처럼 비치는 소재용. */
     private fun shadeAlpha(color: Int, f: Float): Int {
-        val k = 1f - (f / FAR_FADE).coerceIn(0f, 0.75f)
+        val t = (f / FAR_FADE).coerceIn(0f, 0.65f)
+        fun ch(c: Int, haze: Int) = (c + (haze - c) * t).toInt().coerceIn(0, 255)
         return Color.argb(
             Color.alpha(color),
-            (Color.red(color) * k).toInt(),
-            (Color.green(color) * k).toInt(),
-            (Color.blue(color) * k).toInt(),
+            ch(Color.red(color), HAZE_R),
+            ch(Color.green(color), HAZE_G),
+            ch(Color.blue(color), HAZE_B),
         )
     }
 
@@ -451,8 +536,8 @@ class ChaseRenderer {
     }
 
     private fun addBuilding(jobs: MutableList<Job>, canvas: Canvas, w: Wall) {
-        // 중앙 화단: 낮은 녹지 + 수풀
-        if (w == Level.garden) {
+        // 도로 위 화단: 낮은 녹지 + 수풀
+        if (w in Level.gardens) {
             addPrism(
                 jobs, canvas,
                 corners = rectCorners(w),
@@ -552,7 +637,8 @@ class ChaseRenderer {
                 var t = marginEdge
                 var col = 0
                 while (t + winSize <= len - marginEdge) {
-                    val lit = (row * 7 + col * 13 + i * 5 + seed) % 5 == 0
+                    // 아침이라 대부분은 하늘이 비치는 유리, 드문드문 불 켜진 사무실
+                    val lit = (row * 7 + col * 13 + i * 5 + seed) % 7 == 0
                     addWindowQuad(
                         jobs, canvas,
                         x1 = a.first + ux * t, y1 = a.second + uy * t,
@@ -582,7 +668,7 @@ class ChaseRenderer {
         val (r2, f2) = toCam(x2, y2)
         if (f1 < NEAR || f2 < NEAR) return
         val depth = (f1 + f2) / 2f
-        val color = if (lit) Color.argb(220, 255, 214, 120) else Color.argb(140, 22, 32, 40)
+        val color = if (lit) Color.argb(220, 255, 214, 120) else Color.argb(150, 168, 200, 226)
         jobs.add(Job(jobDepth) {
             val p = Path().apply {
                 moveTo(projX(r1, f1), projY(f1, z0))

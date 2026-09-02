@@ -43,13 +43,19 @@ class GameView(context: Context) : View(context) {
 
     private var state = GameUiState()
 
-    private val bgPaint = Paint().apply { color = Color.rgb(38, 50, 56) }
+    private val bgPaint = Paint().apply { color = Color.rgb(104, 112, 118) } // 아침 아스팔트
     private val laneLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(110, 255, 235, 59)
+        color = Color.argb(170, 244, 196, 68)
         strokeWidth = 5f
         style = Paint.Style.STROKE
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(28f, 22f), 0f)
     }
+    private val edgeLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(150, 245, 245, 245)
+        strokeWidth = 4f
+        style = Paint.Style.STROKE
+    }
+    private val crosswalkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 238, 240, 242) }
     private val borderWallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(84, 110, 122) }
     private val windowDetailPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val gardenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(67, 132, 78) }
@@ -79,15 +85,18 @@ class GameView(context: Context) : View(context) {
         color = Color.WHITE
         textSize = 48f
         isFakeBoldText = true
+        setShadowLayer(4f, 0f, 2f, Color.argb(190, 20, 28, 34)) // 밝은 아침 하늘 위에서도 읽히게
     }
     private val hudWarnPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(239, 83, 80)
         textSize = 48f
         isFakeBoldText = true
+        setShadowLayer(4f, 0f, 2f, Color.argb(190, 20, 28, 34))
     }
     private val hudSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(200, 255, 255, 255)
+        color = Color.argb(230, 255, 255, 255)
         textSize = 34f
+        setShadowLayer(3f, 0f, 2f, Color.argb(190, 20, 28, 34))
     }
     private val overlayPaint = Paint().apply { color = Color.argb(170, 0, 0, 0) }
     private val flashPaint = Paint()
@@ -120,11 +129,13 @@ class GameView(context: Context) : View(context) {
         textSize = 56f
         isFakeBoldText = true
         textAlign = Paint.Align.CENTER
+        setShadowLayer(4f, 0f, 2f, Color.argb(190, 20, 28, 34))
     }
     private val comboPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(255, 213, 79)
         textSize = 38f
         isFakeBoldText = true
+        setShadowLayer(3f, 0f, 2f, Color.argb(190, 20, 28, 34))
     }
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 48f
@@ -233,14 +244,24 @@ class GameView(context: Context) : View(context) {
         val sy = sy()
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-        // 도로 중앙선 (점선)
+        // 도로 가장자리 흰 실선
+        for (l in Level.edgeLines) {
+            canvas.drawLine(l.x1 * sx, l.y1 * sy, l.x2 * sx, l.y2 * sy, edgeLinePaint)
+        }
+
+        // 도로 중앙선 (노란 점선)
         for (l in Level.roadLines) {
             canvas.drawLine(l.x1 * sx, l.y1 * sy, l.x2 * sx, l.y2 * sy, laneLinePaint)
         }
 
+        // 횡단보도
+        for (c in Level.crosswalks) {
+            drawCrosswalkTopDown(canvas, c, sx, sy)
+        }
+
         // 건물 블록 (살짝 입체감)
         for (w in state.walls) {
-            if (w == Level.garden) {
+            if (w in Level.gardens) {
                 drawGardenTopDown(canvas, w, sx, sy)
                 continue
             }
@@ -353,7 +374,7 @@ class GameView(context: Context) : View(context) {
         canvas.restore()
     }
 
-    /** 건물 옥상의 창문(채광창) 격자. 일부는 불이 켜져 있다. */
+    /** 건물 옥상의 창문(채광창) 격자. 아침이라 대부분 하늘이 비치고, 드문드문 불이 켜져 있다. */
     private fun drawWindows(canvas: Canvas, w: io.github.cho1017.commutechaos.model.Wall, sx: Float, sy: Float) {
         val step = 55f
         val size = 20f
@@ -364,8 +385,8 @@ class GameView(context: Context) : View(context) {
             var col = 0
             while (wx + size < w.right - 30f) {
                 // 결정적 패턴으로 일부 창문만 점등 (매 프레임 동일해야 깜빡이지 않는다)
-                val lit = (row * 7 + col * 13 + (w.left / 10).toInt()) % 5 == 0
-                windowDetailPaint.color = if (lit) Color.argb(200, 255, 224, 130) else Color.argb(90, 30, 42, 48)
+                val lit = (row * 7 + col * 13 + (w.left / 10).toInt()) % 7 == 0
+                windowDetailPaint.color = if (lit) Color.argb(200, 255, 224, 130) else Color.argb(120, 168, 200, 226)
                 rect.set(wx * sx, wy * sy, (wx + size) * sx, (wy + size) * sy)
                 canvas.drawRoundRect(rect, 3f, 3f, windowDetailPaint)
                 wx += step
@@ -373,6 +394,27 @@ class GameView(context: Context) : View(context) {
             }
             wy += step
             row++
+        }
+    }
+
+    /** 횡단보도 얼룩말 줄무늬 (탑다운). */
+    private fun drawCrosswalkTopDown(canvas: Canvas, c: io.github.cho1017.commutechaos.model.Crosswalk, sx: Float, sy: Float) {
+        val stripe = 12f
+        val gap = 10f
+        if (c.stripesAlongX) {
+            var x = c.left
+            while (x + stripe <= c.right) {
+                rect.set(x * sx, c.top * sy, (x + stripe) * sx, c.bottom * sy)
+                canvas.drawRect(rect, crosswalkPaint)
+                x += stripe + gap
+            }
+        } else {
+            var y = c.top
+            while (y + stripe <= c.bottom) {
+                rect.set(c.left * sx, y * sy, c.right * sx, (y + stripe) * sy)
+                canvas.drawRect(rect, crosswalkPaint)
+                y += stripe + gap
+            }
         }
     }
 

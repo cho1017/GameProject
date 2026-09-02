@@ -9,6 +9,18 @@ data class Wall(val left: Float, val top: Float, val right: Float, val bottom: F
 /** 장식용 선분 (도로 중앙선 등). 충돌 없음. */
 data class Segment(val x1: Float, val y1: Float, val x2: Float, val y2: Float)
 
+/**
+ * 횡단보도 영역. 충돌 없음.
+ * [stripesAlongX]가 true면 줄무늬 막대가 x 방향으로 반복된다 (세로 도로를 건너는 횡단보도).
+ */
+data class Crosswalk(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val stripesAlongX: Boolean,
+)
+
 /** 라운드마다 등장하는 차량의 정의. 개성은 speed/turnRate/radius 조합으로 만든다. */
 data class VehicleSpec(
     val name: String,
