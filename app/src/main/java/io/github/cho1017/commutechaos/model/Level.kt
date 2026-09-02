@@ -30,17 +30,25 @@ object Level {
 
     // ── 다리(고가): 가로 도로 2가 세로 도로 2 위를 넘는다 ─────────────────
     const val BRIDGE_Y = 1100f
-    const val BRIDGE_HALF_W = 84f
+    const val BRIDGE_HALF_W = 100f   // 도로 전체 폭과 같아 옆 건물과 틈이 없다
     const val BRIDGE_H = 55f
     const val BRIDGE_RAMP_W = 620f   // 서쪽 램프 시작 x (z=0)
     const val BRIDGE_DECK_W = 780f   // 상판 시작 x (z=BRIDGE_H)
     const val BRIDGE_DECK_E = 1060f  // 상판 끝 x
     const val BRIDGE_RAMP_E = 1220f  // 동쪽 램프 끝 x (z=0)
 
-    /** 지상 차량에게 벽처럼 작동하는 램프 덩어리. 다리를 타는 차는 그 위를 달린다. */
+    /**
+     * 지상 차량에게 벽처럼 작동하는 램프의 "높은 부분".
+     *
+     * 램프의 낮은 초입(양끝 40)은 일부러 벽에서 뺀다: 접근하는 차의 앞부분이 중심보다
+     * 먼저 램프에 닿는데, 초입까지 벽으로 막으면 차 중심이 램프에 올라 "다리 타는 중"
+     * 판정을 받기 전에 밀려나서 영영 못 올라간다. 초입은 노면이 낮아 벽이 아니라
+     * 오르는 길이 맞다. 높은 부분만 벽이면 다리 밑을 지나던 차가 옆·정면으로
+     * 들이받는 것은 여전히 막힌다.
+     */
     val rampSolids: List<Wall> = listOf(
-        Wall(BRIDGE_RAMP_W, BRIDGE_Y - BRIDGE_HALF_W, BRIDGE_DECK_W, BRIDGE_Y + BRIDGE_HALF_W),
-        Wall(BRIDGE_DECK_E, BRIDGE_Y - BRIDGE_HALF_W, BRIDGE_RAMP_E, BRIDGE_Y + BRIDGE_HALF_W),
+        Wall(BRIDGE_RAMP_W + 40f, BRIDGE_Y - BRIDGE_HALF_W, BRIDGE_DECK_W, BRIDGE_Y + BRIDGE_HALF_W),
+        Wall(BRIDGE_DECK_E, BRIDGE_Y - BRIDGE_HALF_W, BRIDGE_RAMP_E - 40f, BRIDGE_Y + BRIDGE_HALF_W),
     )
 
     /** 다리 노면 높이. 다리 차선(y) 안에서 x에 따라 0 → BRIDGE_H → 0. */
